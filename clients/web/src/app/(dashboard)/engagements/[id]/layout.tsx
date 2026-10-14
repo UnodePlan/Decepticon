@@ -6,6 +6,7 @@ import { EngagementProvider } from "@/lib/engagement-context";
 import { useRunObserver } from "@/hooks/useRunObserver";
 import { WebTerminal } from "@/components/terminal/web-terminal";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n-context";
 
 type RunMode = "plan" | "red" | "blue";
 const MODE_ASSISTANTS: Record<RunMode, "soundwave" | "decepticon" | "blue_cell"> = {
@@ -17,6 +18,7 @@ export default function EngagementLayout({
 }: {
   children: React.ReactNode;
 }): React.ReactNode {
+  const { t } = useI18n();
   const params = useParams();
   const pathname = usePathname();
   const engagementId = params.id as string;
@@ -84,7 +86,7 @@ export default function EngagementLayout({
   async function switchMode(next: RunMode) {
     if (next === mode) return;
     if (isRunning) {
-      setModeNotice("Wait for the current agent run to finish before switching modes.");
+      setModeNotice(t("engagement.notice.busy"));
       return;
     }
     try {
@@ -92,11 +94,11 @@ export default function EngagementLayout({
         const response = await fetch(`/api/engagements/${engagementId}/plan-docs`);
         const docs = response.ok ? await response.json() as { redApproved?: boolean } : {};
         if (!docs.redApproved) {
-          if (!window.confirm("Approve the validated Plan documents for Red? Review the Plan tab before continuing.")) return;
+          if (!window.confirm(t("engagement.notice.approvePlan"))) return;
           const approval = await fetch(`/api/engagements/${engagementId}/plan-docs`, { method: "POST" });
           if (!approval.ok) {
             const detail = await approval.json().catch(() => ({})) as { error?: string };
-            setModeNotice(detail.error ?? "Red needs an approved scope.");
+            setModeNotice(detail.error ?? t("engagement.notice.redNeedsScope"));
             return;
           }
         }
@@ -105,7 +107,7 @@ export default function EngagementLayout({
       if (next === "blue") {
         const response = await fetch("/api/blue/status");
         if (!response.ok) {
-          setModeNotice("Blue needs a connected local sensor. Start it from the host CLI with /blue up.");
+          setModeNotice(t("engagement.notice.blueNeedsSensor"));
           return;
         }
       }
@@ -114,7 +116,7 @@ export default function EngagementLayout({
       setVisitedModes((current) => current.includes(next) ? current : [...current, next]);
       window.history.replaceState(null, "", `${pathname}?mode=${next}`);
     } catch (error) {
-      setModeNotice(error instanceof Error ? error.message : "Mode switch failed");
+      setModeNotice(error instanceof Error ? error.message : t("engagement.notice.switchFailed"));
     }
   }
 
@@ -145,16 +147,16 @@ export default function EngagementLayout({
         <div className="flex flex-1 min-w-0 flex-col overflow-hidden">
           {isLivePath && (
             <div className="flex flex-wrap items-center gap-2 border-b border-white/[0.08] px-4 py-2">
-              <div className="flex rounded-lg border border-border p-0.5" role="group" aria-label="Run mode">
+              <div className="flex rounded-lg border border-border p-0.5" role="group" aria-label={t("engagement.runMode")}>
                 {(["plan", "red", "blue"] as const).map((candidate) => (
                   <button key={candidate} type="button" onClick={() => void switchMode(candidate)} aria-pressed={mode === candidate} className={cn("rounded-md px-3 py-1 text-sm capitalize", mode === candidate ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")}>
                     {candidate}
                   </button>
                 ))}
               </div>
-              <span className="text-xs text-muted-foreground">{mode === "plan" ? "Soundwave planning" : mode === "red" ? "Authorized testing" : "Defensive investigation"}</span>
+              <span className="text-xs text-muted-foreground">{t(mode === "plan" ? "engagement.mode.plan" : mode === "red" ? "engagement.mode.red" : "engagement.mode.blue")}</span>
               {modeNotice && <span role="status" className="text-xs text-amber-400">{modeNotice}</span>}
-              {!redApproved && mode === "plan" && <span className="text-xs text-muted-foreground">Red scope pending review</span>}
+              {!redApproved && mode === "plan" && <span className="text-xs text-muted-foreground">{t("engagement.redPending")}</span>}
             </div>
           )}
           <div className="min-h-0 flex-1 overflow-auto">{children}</div>

@@ -14,6 +14,8 @@ import {
   FileWarning,
   Network,
   Settings,
+  Gauge,
+  Activity,
   ChevronLeft,
   ChevronRight,
   ChevronDown,
@@ -27,30 +29,59 @@ import {
 } from "@/components/ui/tooltip";
 import { Separator } from "@/components/ui/separator";
 import { useState, useEffect } from "react";
+import { useI18n } from "@/lib/i18n-context";
+import type { TranslationKey } from "@/lib/i18n";
 
-interface NavItem {
+export interface NavItem {
   href: string;
-  label: string;
+  labelKey: TranslationKey;
   icon: typeof LayoutDashboard;
   engagementScoped?: boolean;
 }
 
 const globalNav: NavItem[] = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/engagements", label: "Engagements", icon: Crosshair },
+  { href: "/", labelKey: "nav.dashboard", icon: LayoutDashboard },
+  { href: "/engagements", labelKey: "nav.engagements", icon: Crosshair },
 ];
 
 const engagementNav: NavItem[] = [
-  { href: "/live", label: "Live", icon: Radio, engagementScoped: true },
-  { href: "/plan", label: "Plan", icon: ClipboardList, engagementScoped: true },
-  { href: "/timeline", label: "Timeline", icon: Clock, engagementScoped: true },
-  { href: "/documents", label: "Documents", icon: FolderOpen, engagementScoped: true },
-  { href: "/findings", label: "Findings", icon: FileWarning, engagementScoped: true },
-  { href: "/graph", label: "Attack Graph", icon: Network, engagementScoped: true },
+  { href: "/live", labelKey: "nav.live", icon: Radio, engagementScoped: true },
+  { href: "/plan", labelKey: "nav.plan", icon: ClipboardList, engagementScoped: true },
+  { href: "/timeline", labelKey: "nav.timeline", icon: Clock, engagementScoped: true },
+  { href: "/documents", labelKey: "nav.documents", icon: FolderOpen, engagementScoped: true },
+  { href: "/findings", labelKey: "nav.findings", icon: FileWarning, engagementScoped: true },
+  { href: "/graph", labelKey: "nav.attackGraph", icon: Network, engagementScoped: true },
 ];
 
-const bottomNav: NavItem[] = [
-  { href: "/settings", label: "Settings", icon: Settings },
+/**
+ * Entries whose subtree must stay a separate destination.
+ *
+ * `/settings` renders the legacy overview while `/settings/models` and friends
+ * are their own screens, so a prefix match there would light up the wrong
+ * entry — the same reason `/engagements` never highlights an engagement page.
+ */
+const EXACT_MATCH_HREFS: Record<string, true> = {
+  "/": true,
+  "/engagements": true,
+  "/settings": true,
+};
+
+/** Whether `href` owns `pathname` in its own right, or as an ancestor route. */
+export function isNavItemActive(pathname: string, href: string): boolean {
+  if (EXACT_MATCH_HREFS[href]) return pathname === href;
+  return pathname === href || pathname.startsWith(href + "/");
+}
+
+/**
+ * Settings entries rendered at the bottom of the rail.
+ *
+ * Exported so the route-split tests can assert one entry per settings screen
+ * without mounting the sidebar (which needs Next's router).
+ */
+export const bottomNav: NavItem[] = [
+  { href: "/settings/models", labelKey: "nav.settingsModels", icon: Settings },
+  { href: "/settings/runtime", labelKey: "nav.settingsRuntime", icon: Gauge },
+  { href: "/settings/status", labelKey: "nav.settingsStatus", icon: Activity },
 ];
 
 interface Engagement {
@@ -59,6 +90,7 @@ interface Engagement {
 }
 
 export function Sidebar() {
+  const { t } = useI18n();
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [engDropdownOpen, setEngDropdownOpen] = useState(false);
@@ -95,23 +127,17 @@ export function Sidebar() {
     return item.href;
   }
 
-  function isActive(item: NavItem) {
-    const href = resolveHref(item);
-    if (item.href === "/" || item.href === "/engagements") {
-      return pathname === item.href;
-    }
-    return pathname === href || pathname.startsWith(href + "/");
-  }
-
   function renderNavItem(item: NavItem) {
     const href = resolveHref(item);
-    const active = isActive(item);
+    const active = isNavItemActive(pathname, href);
     const disabled = item.engagementScoped && !activeEngId;
+    const label = t(item.labelKey);
 
     const link = (
       <Link
         key={href}
         href={disabled ? "#" : href}
+        aria-current={active ? "page" : undefined}
         className={cn(
           "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-150",
           active
@@ -123,7 +149,7 @@ export function Sidebar() {
         onClick={(e) => disabled && e.preventDefault()}
       >
         <item.icon className={cn("h-4 w-4 shrink-0", active && "text-primary")} />
-        {!collapsed && <span>{item.label}</span>}
+        {!collapsed && <span>{label}</span>}
       </Link>
     );
 
@@ -132,8 +158,8 @@ export function Sidebar() {
         <Tooltip key={href}>
           <TooltipTrigger>{link}</TooltipTrigger>
           <TooltipContent side="right">
-            {item.label}
-            {disabled && " (select engagement first)"}
+            {label}
+            {disabled && ` ${t("nav.selectEngagementFirst")}`}
           </TooltipContent>
         </Tooltip>
       );
@@ -175,7 +201,7 @@ export function Sidebar() {
           {!collapsed && (
             <div className="mb-1 px-3">
               <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">
-                Engagement
+                {t("nav.engagementSection")}
               </span>
             </div>
           )}
@@ -194,7 +220,7 @@ export function Sidebar() {
                 )}
               >
                 <span className="truncate">
-                  {activeEng ? activeEng.name : "Select engagement..."}
+                  {activeEng ? activeEng.name : t("nav.selectEngagement")}
                 </span>
                 <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 transition-transform", engDropdownOpen && "rotate-180")} />
               </button>
@@ -202,7 +228,7 @@ export function Sidebar() {
               {engDropdownOpen && (
                 <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-48 overflow-auto rounded-lg border border-border bg-popover p-1 shadow-lg">
                   {engagements.length === 0 ? (
-                    <p className="px-2.5 py-1.5 text-xs text-muted-foreground">No engagements</p>
+                    <p className="px-2.5 py-1.5 text-xs text-muted-foreground">{t("nav.noEngagements")}</p>
                   ) : (
                     engagements.map((eng) => (
                       <Link
@@ -234,8 +260,17 @@ export function Sidebar() {
         <div className="flex-1" />
 
         {/* Bottom nav */}
-        <div className="space-y-0.5 p-2">
-          {bottomNav.map(renderNavItem)}
+        <div className="p-2">
+          {!collapsed && (
+            <div className="mb-1 px-3">
+              <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">
+                {t("nav.settings")}
+              </span>
+            </div>
+          )}
+          <div className="space-y-0.5">
+            {bottomNav.map(renderNavItem)}
+          </div>
         </div>
       </nav>
 

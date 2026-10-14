@@ -1,4 +1,5 @@
 import React from "react";
+import { useI18n } from "@/lib/i18n-context";
 
 function labelForKey(key: string): string {
   return key
@@ -20,11 +21,12 @@ function itemKey(value: unknown, index: number): string {
 }
 
 function StructuredValue({ value }: { value: unknown }) {
+  const { t } = useI18n();
   if (value === null || value === undefined || value === "") {
-    return <span className="text-muted-foreground">Not specified</span>;
+    return <span className="text-muted-foreground">{t("structured.notSpecified")}</span>;
   }
   if (Array.isArray(value)) {
-    if (value.length === 0) return <span className="text-muted-foreground">None</span>;
+    if (value.length === 0) return <span className="text-muted-foreground">{t("structured.none")}</span>;
     return (
       <div className="space-y-2">
         {value.map((item, index) => (

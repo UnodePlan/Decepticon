@@ -7,6 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FileWarning, Network, Play, ArrowRight, ClipboardList, Download, Clock } from "lucide-react";
+import { useI18n } from "@/lib/i18n-context";
+import { severityLabel, type TranslationKey } from "@/lib/i18n";
 
 interface Objective {
   id: string;
@@ -30,6 +32,7 @@ const severityBadge: Record<string, string> = {
 };
 
 export default function EngagementOverviewPage() {
+  const { t, locale } = useI18n();
   const params = useParams();
   const router = useRouter();
   const id = params.id as string;
@@ -109,27 +112,27 @@ export default function EngagementOverviewPage() {
   const progress = totalObj > 0 ? Math.round(((completedCount + blockedCount) / totalObj) * 100) : 0;
   const criticalFindings = findings.filter((f) => f.severity === "critical").length;
 
-  const stats = [
+  const stats: { labelKey: TranslationKey; value: number; subValue: string; icon: typeof ClipboardList; href: string; color: string }[] = [
     {
-      label: "Objectives",
+      labelKey: "engagement.stat.objectives",
       value: totalObj,
-      subValue: `${completedCount} completed`,
+      subValue: t("engagement.stat.completed", { count: completedCount }),
       icon: ClipboardList,
       href: "plan",
       color: "text-emerald-400",
     },
     {
-      label: "Findings",
+      labelKey: "engagement.stat.findings",
       value: findings.length,
-      subValue: `${criticalFindings} critical`,
+      subValue: t("engagement.stat.critical", { count: criticalFindings }),
       icon: FileWarning,
       href: "findings",
       color: "text-red-400",
     },
     {
-      label: "Attack Graph",
+      labelKey: "engagement.stat.attackGraph",
       value: graphNodeCount,
-      subValue: "nodes discovered",
+      subValue: t("engagement.stat.nodes"),
       icon: Network,
       href: "graph",
       color: "text-cyan-400",
@@ -141,11 +144,11 @@ export default function EngagementOverviewPage() {
       {/* Stats grid */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {stats.map((stat) => (
-          <Link key={stat.label} href={`/engagements/${id}/${stat.href}`}>
+          <Link key={stat.labelKey} href={`/engagements/${id}/${stat.href}`}>
             <Card className="group cursor-pointer transition-colors hover:border-primary/30">
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  {stat.label}
+                  {t(stat.labelKey)}
                 </CardTitle>
                 <stat.icon className={`h-4 w-4 ${stat.color}`} />
               </CardHeader>
@@ -166,7 +169,7 @@ export default function EngagementOverviewPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Progress
+              {t("engagement.progress")}
             </CardTitle>
             <Play className="h-4 w-4 text-amber-400" />
           </CardHeader>
@@ -180,7 +183,7 @@ export default function EngagementOverviewPage() {
                 />
               </div>
               <p className="mt-1 text-xs text-muted-foreground">
-                {completedCount}/{totalObj} objectives resolved
+                {t("engagement.progress.detail", { resolved: completedCount, total: totalObj })}
               </p>
             </div>
           </CardContent>
@@ -190,30 +193,30 @@ export default function EngagementOverviewPage() {
       {/* Quick actions */}
       <div className="flex gap-2">
         <Link href={`/engagements/${id}/timeline`} className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs transition-colors hover:bg-accent">
-          <Clock className="h-3 w-3" /> Timeline
+          <Clock className="h-3 w-3" /> {t("timeline.title")}
         </Link>
         <a href={`/api/engagements/${id}/export?format=json`} className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs transition-colors hover:bg-accent">
-          <Download className="h-3 w-3" /> Export JSON
+          <Download className="h-3 w-3" /> {t("engagement.exportJson")}
         </a>
         <a href={`/api/engagements/${id}/export?format=markdown`} className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs transition-colors hover:bg-accent">
-          <Download className="h-3 w-3" /> Export Markdown
+          <Download className="h-3 w-3" /> {t("engagement.exportMarkdown")}
         </a>
       </div>
 
       {/* Recent findings */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-base">Recent Findings</CardTitle>
+          <CardTitle className="text-base">{t("engagement.recentFindings")}</CardTitle>
           {findings.length > 0 && (
             <Link href={`/engagements/${id}/findings`} className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1">
-              View all <ArrowRight className="h-3 w-3" />
+              {t("engagement.viewAll")} <ArrowRight className="h-3 w-3" />
             </Link>
           )}
         </CardHeader>
         <CardContent>
           {findings.length === 0 ? (
             <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
-              No findings yet — run the engagement to discover vulnerabilities
+              {t("engagement.noFindings")}
             </div>
           ) : (
             <div className="space-y-2">
@@ -224,7 +227,7 @@ export default function EngagementOverviewPage() {
                     <span className="text-xs text-muted-foreground">{f.id}</span>
                   </div>
                   <Badge className={`shrink-0 text-xs ${severityBadge[f.severity] ?? "bg-zinc-500/20"}`}>
-                    {f.severity}
+                    {severityLabel(locale, f.severity)}
                   </Badge>
                 </div>
               ))}

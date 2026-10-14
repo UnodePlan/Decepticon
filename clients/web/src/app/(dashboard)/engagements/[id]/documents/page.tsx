@@ -9,6 +9,8 @@ import {
   Folder, Loader2, File, ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n-context";
+import type { TranslationKey } from "@/lib/i18n";
 
 interface FileEntry {
   name: string;
@@ -22,12 +24,13 @@ interface FolderGroup {
   files: FileEntry[];
 }
 
-const FOLDER_META: Record<string, { icon: typeof Folder; color: string; label: string }> = {
-  recon: { icon: Radar, color: "text-cyan-400", label: "Recon" },
-  exploit: { icon: Zap, color: "text-amber-400", label: "Exploit" },
-  "post-exploit": { icon: Key, color: "text-purple-400", label: "Post-Exploit" },
-  findings: { icon: AlertTriangle, color: "text-red-400", label: "Findings" },
-  report: { icon: FileText, color: "text-emerald-400", label: "Report" },
+/** Folder labels are localized; unknown folders fall back to the raw name. */
+const FOLDER_META: Record<string, { icon: typeof Folder; color: string; labelKey: TranslationKey }> = {
+  recon: { icon: Radar, color: "text-cyan-400", labelKey: "documents.folder.recon" },
+  exploit: { icon: Zap, color: "text-amber-400", labelKey: "documents.folder.exploit" },
+  "post-exploit": { icon: Key, color: "text-purple-400", labelKey: "documents.folder.postExploit" },
+  findings: { icon: AlertTriangle, color: "text-red-400", labelKey: "documents.folder.findings" },
+  report: { icon: FileText, color: "text-emerald-400", labelKey: "documents.folder.report" },
 };
 
 /** Folders managed by the Plan page — excluded from Documents. */
@@ -40,6 +43,7 @@ function formatSize(bytes: number): string {
 }
 
 export default function DocumentsPage() {
+  const { t } = useI18n();
   const params = useParams();
   const id = params.id as string;
   const [folders, setFolders] = useState<FolderGroup[]>([]);
@@ -154,15 +158,15 @@ export default function DocumentsPage() {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Documents</h1>
-          <p className="text-sm text-muted-foreground">Engagement workspace files</p>
+          <h1 className="text-2xl font-bold tracking-tight">{t("documents.title")}</h1>
+          <p className="text-sm text-muted-foreground">{t("documents.subtitle")}</p>
         </div>
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-16">
             <FileText className="mb-3 h-10 w-10 text-muted-foreground/30" />
-            <p className="text-sm font-medium">No workspace files found</p>
+            <p className="text-sm font-medium">{t("documents.empty.title")}</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              Start an engagement from the Live tab to generate documents
+              {t("documents.empty.description")}
             </p>
           </CardContent>
         </Card>
@@ -177,9 +181,9 @@ export default function DocumentsPage() {
       {/* Left: Folder tree */}
       <div className="w-64 shrink-0 overflow-hidden flex flex-col">
         <div className="mb-3">
-          <h1 className="text-lg font-bold tracking-tight">Documents</h1>
+          <h1 className="text-lg font-bold tracking-tight">{t("documents.title")}</h1>
           <p className="text-xs text-muted-foreground">
-            {totalFiles} files in {folders.length} folders
+            {t("documents.summary", { files: totalFiles, folders: folders.length })}
           </p>
         </div>
 
@@ -206,7 +210,7 @@ export default function DocumentsPage() {
                     />
                     <Icon className={cn("h-4 w-4 shrink-0", color)} />
                     <span className="flex-1 text-sm font-medium">
-                      {meta?.label ?? group.folder}
+                      {meta ? t(meta.labelKey) : group.folder}
                     </span>
                     <span className="text-[10px] text-muted-foreground/70">
                       {group.files.length}
@@ -251,7 +255,7 @@ export default function DocumentsPage() {
         <CardHeader className="border-b border-border/50 pb-3">
           <CardTitle className="flex items-center gap-2 text-sm font-mono">
             <FileText className="h-4 w-4" />
-            {selectedFile?.path ?? "Select a file"}
+            {selectedFile?.path ?? t("documents.selectFile")}
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
@@ -267,7 +271,7 @@ export default function DocumentsPage() {
                 </pre>
               ) : (
                 <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">
-                  Select a file from the sidebar
+                  {t("documents.selectFileHint")}
                 </div>
               )}
             </div>

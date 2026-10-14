@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect } from "react";
+import { useI18n } from "@/lib/i18n-context";
 
 export default function DashboardError({
   error,
@@ -10,6 +11,7 @@ export default function DashboardError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const { t } = useI18n();
   useEffect(() => {
     console.error("[Dashboard] Error:", error);
   }, [error]);
@@ -17,22 +19,22 @@ export default function DashboardError({
   return (
     <div className="flex min-h-[50vh] flex-col items-center justify-center gap-4">
       <div className="rounded-xl bg-red-500/10 p-6 ring-1 ring-red-500/20 max-w-lg">
-        <h2 className="text-lg font-semibold text-red-300">Dashboard Error</h2>
+        <h2 className="text-lg font-semibold text-red-300">{t("error.dashboard.title")}</h2>
         <p className="mt-2 text-sm text-red-400/70">
-          {error.message || "Failed to load this page."}
+          {error.message || t("error.dashboard.fallback")}
         </p>
         <div className="mt-4 flex gap-2">
           <button
             onClick={reset}
             className="rounded-lg bg-red-500/20 px-4 py-2 text-sm font-medium text-red-300 hover:bg-red-500/30"
           >
-            Try again
+            {t("error.retry")}
           </button>
           <Link
             href="/"
             className="rounded-lg bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-300 hover:bg-zinc-700"
           >
-            Go home
+            {t("error.goHome")}
           </Link>
         </div>
       </div>

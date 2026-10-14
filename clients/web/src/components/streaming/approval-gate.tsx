@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { ShieldAlert, Check, X, Loader2, Pencil } from "lucide-react";
+import { useI18n } from "@/lib/i18n-context";
 
 // Matches the `approval_request` wire format written by
 // decepticon/middleware/hitl.py (ApprovalRequest.to_jsonl).
@@ -83,6 +84,7 @@ interface ApprovalCardProps {
 }
 
 function ApprovalCard({ request, engagementId, onDecided }: ApprovalCardProps) {
+  const { t } = useI18n();
   const [note, setNote] = useState("");
   const [argsText, setArgsText] = useState("");
   const [submitting, setSubmitting] = useState<"allow" | "deny" | "redirect" | null>(null);
@@ -98,7 +100,7 @@ function ApprovalCard({ request, engagementId, onDecided }: ApprovalCardProps) {
       try {
         redirectArgs = JSON.parse(argsText) as Record<string, unknown>;
       } catch {
-        setError("Redirect args must be valid JSON");
+        setError(t("approval.error.invalidJson"));
         return;
       }
     }
@@ -117,13 +119,13 @@ function ApprovalCard({ request, engagementId, onDecided }: ApprovalCardProps) {
         }),
       });
       if (!res.ok) {
-        setError("Failed to submit decision");
+        setError(t("approval.error.submit"));
         setSubmitting(null);
         return;
       }
       onDecided(request.request_id);
     } catch {
-      setError("Network error");
+      setError(t("approval.error.network"));
       setSubmitting(null);
     }
   }
@@ -135,7 +137,7 @@ function ApprovalCard({ request, engagementId, onDecided }: ApprovalCardProps) {
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-sm text-amber-300">
           <ShieldAlert className="h-4 w-4 shrink-0" />
-          <span className="flex-1">Approval required</span>
+          <span className="flex-1">{t("approval.required")}</span>
           <Badge variant="outline" className="border-amber-500/40 text-amber-300">
             {request.agent_name}
           </Badge>
@@ -143,7 +145,7 @@ function ApprovalCard({ request, engagementId, onDecided }: ApprovalCardProps) {
       </CardHeader>
       <CardContent className="space-y-3 text-xs">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-muted-foreground">Tool</span>
+          <span className="text-muted-foreground">{t("approval.tool")}</span>
           <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-foreground">
             {request.tool_name}
           </code>
@@ -156,7 +158,7 @@ function ApprovalCard({ request, engagementId, onDecided }: ApprovalCardProps) {
         {argEntries.length > 0 && (
           <div className="rounded-md border border-white/[0.08] bg-background/40 p-2">
             <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Arguments (redacted)
+              {t("approval.arguments")}
             </div>
             <dl className="space-y-0.5">
               {argEntries.map(([key, value]) => (
@@ -172,8 +174,8 @@ function ApprovalCard({ request, engagementId, onDecided }: ApprovalCardProps) {
         )}
 
         <Textarea
-          aria-label="Operator note"
-          placeholder="Optional note…"
+          aria-label={t("approval.noteLabel")}
+          placeholder={t("approval.notePlaceholder")}
           value={note}
           onChange={(e) => setNote(e.target.value)}
           disabled={submitting !== null}
@@ -181,8 +183,8 @@ function ApprovalCard({ request, engagementId, onDecided }: ApprovalCardProps) {
         />
 
         <Textarea
-          aria-label="Redirect arguments (JSON)"
-          placeholder='Redirect args as JSON, e.g. {"cmd": "ls -la"}'
+          aria-label={t("approval.redirectLabel")}
+          placeholder={t("approval.redirectPlaceholder")}
           value={argsText}
           onChange={(e) => setArgsText(e.target.value)}
           disabled={submitting !== null}
@@ -204,7 +206,7 @@ function ApprovalCard({ request, engagementId, onDecided }: ApprovalCardProps) {
             ) : (
               <Check />
             )}
-            Allow
+            {t("approval.allow")}
           </Button>
           <Button
             type="button"
@@ -215,7 +217,7 @@ function ApprovalCard({ request, engagementId, onDecided }: ApprovalCardProps) {
             className="flex-1"
           >
             {submitting === "deny" ? <Loader2 className="animate-spin" /> : <X />}
-            Deny
+            {t("approval.deny")}
           </Button>
           <Button
             type="button"
@@ -230,7 +232,7 @@ function ApprovalCard({ request, engagementId, onDecided }: ApprovalCardProps) {
             ) : (
               <Pencil />
             )}
-            Redirect
+            {t("approval.redirect")}
           </Button>
         </div>
       </CardContent>

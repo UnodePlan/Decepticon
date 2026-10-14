@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { SubagentCustomEvent } from "@decepticon/streaming";
 import { AGENT_DISPLAY_CONFIG } from "@/lib/agents";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n-context";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -101,6 +102,7 @@ interface EventRowProps {
 }
 
 function EventRow({ event, relativeTime }: EventRowProps) {
+  const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
   const color = getAgentColor(event.agent);
   const name = getAgentName(event.agent);
@@ -114,7 +116,7 @@ function EventRow({ event, relativeTime }: EventRowProps) {
       icon = <Bot className="h-3.5 w-3.5 shrink-0 text-emerald-400" />;
       detail = (
         <span className="text-emerald-400/90">
-          {name} started
+          {t("activity.agent.started", { name })}
           {event.content ? <span className="text-zinc-500"> — {event.content}</span> : null}
         </span>
       );
@@ -125,8 +127,8 @@ function EventRow({ event, relativeTime }: EventRowProps) {
       icon = <CheckCircle className={cn("h-3.5 w-3.5 shrink-0", isError ? "text-red-400" : "text-zinc-500")} />;
       detail = (
         <span className={isError ? "text-red-400" : "text-zinc-500"}>
-          {name} completed{event.elapsed != null ? ` (${event.elapsed.toFixed(1)}s)` : ""}
-          {isError ? " — error" : ""}
+          {t(isError ? "activity.agent.failed" : "activity.agent.completed", { name })}
+          {event.elapsed != null ? ` (${event.elapsed.toFixed(1)}s)` : ""}
         </span>
       );
       if (isError) rowClass = "bg-red-500/5";
@@ -147,7 +149,7 @@ function EventRow({ event, relativeTime }: EventRowProps) {
       icon = <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-zinc-600" />;
       detail = (
         <span className="text-zinc-500">
-          {name} ← <span className="font-mono">{event.tool}</span> done
+          {name} ← <span className="font-mono">{event.tool}</span> {t("activity.toolDone")}
         </span>
       );
       break;
@@ -166,7 +168,7 @@ function EventRow({ event, relativeTime }: EventRowProps) {
               onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
               className="ml-1 text-[10px] text-zinc-600 hover:text-zinc-400"
             >
-              {expanded ? "collapse" : "expand"}
+              {t(expanded ? "activity.collapse" : "activity.expand")}
             </button>
           )}
         </span>
@@ -177,7 +179,7 @@ function EventRow({ event, relativeTime }: EventRowProps) {
       icon = <HelpCircle className="h-3.5 w-3.5 shrink-0 animate-pulse text-amber-400" />;
       detail = (
         <span className="text-amber-300 animate-pulse">
-          {name} waiting: {event.question ?? event.content ?? "awaiting input"}
+          {t("activity.agent.waiting", { name, question: event.question ?? event.content ?? "…" })}
         </span>
       );
       rowClass = "bg-amber-500/5";
@@ -186,12 +188,13 @@ function EventRow({ event, relativeTime }: EventRowProps) {
     case "background_complete": {
       const exit = event.exit_code;
       const ok = exit === 0 || exit == null;
-      const label = event.command ?? event.session ?? "background task";
+      const label = event.command ?? event.session ?? t("activity.backgroundTask");
       icon = <Terminal className={cn("h-3.5 w-3.5 shrink-0", ok ? "text-emerald-400" : "text-red-400")} />;
       detail = (
         <span className={ok ? "text-zinc-300" : "text-red-300"}>
-          {name} <span className="font-mono">{label}</span>
-          {exit != null ? ` exited ${exit}` : " finished"}
+          {exit != null
+            ? t("activity.agent.exited", { name, label, code: exit })
+            : t("activity.agent.finished", { name, label })}
         </span>
       );
       if (!ok) rowClass = "bg-red-500/5";
@@ -200,14 +203,14 @@ function EventRow({ event, relativeTime }: EventRowProps) {
     case "engagement_ready": {
       icon = <Rocket className="h-3.5 w-3.5 shrink-0 text-violet-400" />;
       detail = (
-        <span className="text-violet-300">Engagement planning complete — Decepticon will continue</span>
+        <span className="text-violet-300">{t("activity.engagementReady")}</span>
       );
       rowClass = "bg-violet-500/5";
       break;
     }
     case "planning_draft_ready": {
       icon = <Rocket className="h-3.5 w-3.5 shrink-0 text-violet-400" />;
-      detail = <span className="text-violet-300">Planning draft ready for review in Interview</span>;
+      detail = <span className="text-violet-300">{t("activity.planningDraftReady")}</span>;
       rowClass = "bg-violet-500/5";
       break;
     }
@@ -236,6 +239,7 @@ function EventRow({ event, relativeTime }: EventRowProps) {
 // ── Idle State — shows OPPLAN + workspace when no events ─────────
 
 function IdleState({ engagementId }: { engagementId: string }) {
+  const { t } = useI18n();
   const [objectives, setObjectives] = useState<Objective[]>([]);
   const [files, setFiles] = useState<FileEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -294,7 +298,7 @@ function IdleState({ engagementId }: { engagementId: string }) {
       {/* Header */}
       <div className="flex items-center gap-2 border-b border-white/[0.08] px-3 py-2">
         <Activity className="h-3.5 w-3.5 text-zinc-500" />
-        <span className="text-[11px] font-medium text-zinc-400">Engagement Status</span>
+        <span className="text-[11px] font-medium text-zinc-400">{t("activity.status")}</span>
       </div>
 
       <ScrollArea className="flex-1">
@@ -305,7 +309,7 @@ function IdleState({ engagementId }: { engagementId: string }) {
               <div className="mb-2 flex items-center gap-1.5">
                 <Target className="h-3 w-3 text-zinc-500" />
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-                  Objectives
+                  {t("activity.objectives")}
                 </span>
                 <span className="ml-auto text-[10px] text-zinc-600">
                   {completed}/{objectives.length}
@@ -343,9 +347,9 @@ function IdleState({ engagementId }: { engagementId: string }) {
 
               {/* Summary */}
               <div className="mt-2 flex gap-3 text-[10px] text-zinc-600">
-                {inProgress > 0 && <span className="text-amber-400">{inProgress} running</span>}
-                {blocked > 0 && <span className="text-red-400">{blocked} blocked</span>}
-                {completed > 0 && <span className="text-emerald-400">{completed} done</span>}
+                {inProgress > 0 && <span className="text-amber-400">{t("activity.running", { count: inProgress })}</span>}
+                {blocked > 0 && <span className="text-red-400">{t("activity.blocked", { count: blocked })}</span>}
+                {completed > 0 && <span className="text-emerald-400">{t("activity.done", { count: completed })}</span>}
               </div>
             </div>
           )}
@@ -356,7 +360,7 @@ function IdleState({ engagementId }: { engagementId: string }) {
               <div className="mb-2 flex items-center gap-1.5">
                 <FolderOpen className="h-3 w-3 text-zinc-500" />
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-                  Workspace Files
+                  {t("activity.workspaceFiles")}
                 </span>
                 <span className="ml-auto text-[10px] text-zinc-600">{files.length}</span>
               </div>
@@ -369,7 +373,7 @@ function IdleState({ engagementId }: { engagementId: string }) {
                   </div>
                 ))}
                 {files.length > 15 && (
-                  <span className="block px-2 text-[10px] text-zinc-700">+{files.length - 15} more</span>
+                  <span className="block px-2 text-[10px] text-zinc-700">{t("activity.more", { count: files.length - 15 })}</span>
                 )}
               </div>
             </div>
@@ -379,9 +383,9 @@ function IdleState({ engagementId }: { engagementId: string }) {
           {objectives.length === 0 && files.length === 0 && (
             <div className="flex flex-col items-center justify-center py-8 text-center">
               <Activity className="mb-2 h-6 w-6 text-zinc-700" />
-              <p className="text-xs text-zinc-500">No activity yet</p>
+              <p className="text-xs text-zinc-500">{t("activity.empty")}</p>
               <p className="mt-1 text-[10px] text-zinc-700">
-                Use the terminal to start the engagement
+                {t("activity.emptyHint")}
               </p>
             </div>
           )}
@@ -394,6 +398,7 @@ function IdleState({ engagementId }: { engagementId: string }) {
 // ── LiveActivityFeed ─────────────────────────────────────────────
 
 export function LiveActivityFeed({ events, engagementId, className }: LiveActivityFeedProps) {
+  const { t } = useI18n();
   const bottomRef = useRef<HTMLDivElement>(null);
   const timestampsRef = useRef<number[]>([]);
   const [relTimes, setRelTimes] = useState<string[]>([]);
@@ -434,7 +439,7 @@ export function LiveActivityFeed({ events, engagementId, className }: LiveActivi
     <div className={cn("flex flex-col overflow-hidden rounded-lg border border-white/[0.08] bg-zinc-900", className)}>
       {/* Header */}
       <div className="flex items-center justify-between border-b border-white/[0.08] px-3 py-1.5">
-        <span className="text-[11px] font-medium text-zinc-400">Activity Feed</span>
+        <span className="text-[11px] font-medium text-zinc-400">{t("activity.title")}</span>
         <Badge variant="secondary" className="h-4 text-[10px]">
           {events.length}
         </Badge>

@@ -9,8 +9,10 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Globe, Server, Loader2 } from "lucide-react";
 import { isValidEngagementSlug } from "@/lib/engagement-slug";
+import { useI18n } from "@/lib/i18n-context";
 
 export default function NewEngagementPage() {
+  const { t } = useI18n();
   const router = useRouter();
   const [targetType, setTargetType] = useState("web_url");
   const [name, setName] = useState("");
@@ -24,12 +26,12 @@ export default function NewEngagementPage() {
   const nameValid = isValidEngagementSlug(name);
   const nameError =
     name.length > 0 && !nameValid
-      ? "Name must be 3-64 chars, lowercase letters / digits with internal hyphens only"
+      ? t("newEngagement.error.nameFormat")
       : null;
 
   async function handleSubmit() {
     if (!nameValid || !targetValue.trim() || !authorizationConfirmed || !authorizationReference.trim()) {
-      setError("Enter one target and authorization reference, then confirm authorization");
+      setError(t("newEngagement.error.missingFields"));
       return;
     }
 
@@ -45,13 +47,13 @@ export default function NewEngagementPage() {
 
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(data.error || "Failed to create engagement");
+        throw new Error(data.error || t("newEngagement.error.create"));
       }
 
       const engagement = await res.json();
       router.push(`/engagements/${engagement.id}/live?mode=${initialMode}`);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Unknown error");
+      setError(err instanceof Error ? err.message : t("newEngagement.error.unknown"));
     } finally {
       setSubmitting(false);
     }
@@ -60,9 +62,9 @@ export default function NewEngagementPage() {
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">New Engagement</h1>
+        <h1 className="text-2xl font-bold tracking-tight">{t("newEngagement.title")}</h1>
         <p className="text-sm text-muted-foreground">
-          Configure a new red team testing operation (DAST)
+          {t("newEngagement.subtitle")}
         </p>
       </div>
 
@@ -74,14 +76,14 @@ export default function NewEngagementPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Engagement Details</CardTitle>
+          <CardTitle className="text-base">{t("newEngagement.details")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="name">Engagement Name</Label>
+            <Label htmlFor="name">{t("newEngagement.name")}</Label>
             <Input
               id="name"
-              placeholder="e.g., q2-security-assessment"
+              placeholder={t("newEngagement.namePlaceholder")}
               value={name}
               onChange={(e) => setName(e.target.value)}
               aria-invalid={nameError ? true : undefined}
@@ -90,28 +92,27 @@ export default function NewEngagementPage() {
               <p className="text-xs text-destructive">{nameError}</p>
             ) : (
               <p className="text-xs text-muted-foreground">
-                Used as the workspace folder name — 3-64 chars, lowercase
-                letters / digits with internal hyphens
+                {t("newEngagement.nameHint")}
               </p>
             )}
           </div>
           <div className="space-y-2">
-            <Label>Starting mode</Label>
-            <div className="grid grid-cols-3 gap-2" role="group" aria-label="Starting mode">
+            <Label>{t("newEngagement.startingMode")}</Label>
+            <div className="grid grid-cols-3 gap-2" role="group" aria-label={t("newEngagement.startingMode")}>
               {(["plan", "red", "blue"] as const).map((mode) => (
                 <Button key={mode} type="button" variant={initialMode === mode ? "default" : "outline"} onClick={() => setInitialMode(mode)} aria-pressed={initialMode === mode}>
-                  {mode === "plan" ? "Plan" : mode === "red" ? "Red" : "Blue"}
+                  {mode === "plan" ? t("nav.plan") : mode === "red" ? "Red" : "Blue"}
                 </Button>
               ))}
             </div>
-            <p className="text-xs text-muted-foreground">Plan opens Soundwave for deeper planning. Red starts from the authorized target. Blue needs a connected local sensor.</p>
+            <p className="text-xs text-muted-foreground">{t("newEngagement.modeHint")}</p>
           </div>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Target Configuration</CardTitle>
+          <CardTitle className="text-base">{t("newEngagement.targetConfig")}</CardTitle>
         </CardHeader>
         <CardContent>
           <Tabs
@@ -124,17 +125,17 @@ export default function NewEngagementPage() {
             <TabsList className="w-full">
               <TabsTrigger value="web_url" className="flex-1 gap-2">
                 <Globe className="h-4 w-4" />
-                Web URL
+                {t("newEngagement.webUrl")}
               </TabsTrigger>
               <TabsTrigger value="ip_range" className="flex-1 gap-2">
                 <Server className="h-4 w-4" />
-                IP Range
+                {t("newEngagement.ipRange")}
               </TabsTrigger>
             </TabsList>
 
             <TabsContent value="web_url" className="mt-4 space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="url">Target URL</Label>
+                <Label htmlFor="url">{t("newEngagement.targetUrl")}</Label>
                 <Input
                   id="url"
                   type="url"
@@ -143,14 +144,14 @@ export default function NewEngagementPage() {
                   onChange={(e) => setTargetValue(e.target.value)}
                 />
                 <p className="text-xs text-muted-foreground">
-                  The web application URL to test
+                  {t("newEngagement.targetUrlHint")}
                 </p>
               </div>
             </TabsContent>
 
             <TabsContent value="ip_range" className="mt-4 space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="ip">IP Range</Label>
+                <Label htmlFor="ip">{t("newEngagement.ipRange")}</Label>
                 <Input
                   id="ip"
                   placeholder="192.168.1.0/24"
@@ -158,7 +159,7 @@ export default function NewEngagementPage() {
                   onChange={(e) => setTargetValue(e.target.value)}
                 />
                 <p className="text-xs text-muted-foreground">
-                  One IP address or CIDR range to scan
+                  {t("newEngagement.ipHint")}
                 </p>
               </div>
             </TabsContent>
@@ -168,12 +169,12 @@ export default function NewEngagementPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Authorization</CardTitle>
+          <CardTitle className="text-base">{t("newEngagement.authorization")}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="mb-4 space-y-2">
-            <Label htmlFor="authorization-reference">Authorization reference</Label>
-            <Input id="authorization-reference" value={authorizationReference} onChange={(event) => setAuthorizationReference(event.target.value)} placeholder="e.g., signed engagement agreement ID" />
+            <Label htmlFor="authorization-reference">{t("newEngagement.authorizationReference")}</Label>
+            <Input id="authorization-reference" value={authorizationReference} onChange={(event) => setAuthorizationReference(event.target.value)} placeholder={t("newEngagement.authorizationPlaceholder")} />
           </div>
           <label className="flex cursor-pointer items-start gap-3 text-sm">
             <input
@@ -183,9 +184,7 @@ export default function NewEngagementPage() {
               className="mt-0.5 h-4 w-4"
             />
             <span>
-              I confirm I am authorized to test exactly the declared target. This does
-              not authorize adjacent assets, destructive testing, DoS, social
-              engineering, uncontrolled data mutation, or scope expansion.
+              {t("newEngagement.authorizationStatement")}
             </span>
           </label>
         </CardContent>
@@ -193,11 +192,11 @@ export default function NewEngagementPage() {
 
       <div className="flex justify-end gap-3">
         <Button variant="outline" onClick={() => router.back()}>
-          Cancel
+          {t("newEngagement.cancel")}
         </Button>
         <Button onClick={handleSubmit} disabled={submitting || !nameValid || !authorizationConfirmed || !authorizationReference.trim()}>
           {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          Create Engagement
+          {t("newEngagement.create")}
         </Button>
       </div>
     </div>

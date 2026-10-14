@@ -4,6 +4,8 @@ import { useState, useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Network, Loader2 } from "lucide-react";
 import { AttackGraphCanvas } from "@/components/graph/attack-graph-canvas";
+import { useI18n } from "@/lib/i18n-context";
+import { statusLabel } from "@/lib/i18n";
 
 interface Engagement {
   id: string;
@@ -12,6 +14,7 @@ interface Engagement {
 }
 
 export default function GraphPage() {
+  const { t, locale } = useI18n();
   const [engagements, setEngagements] = useState<Engagement[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -58,9 +61,9 @@ export default function GraphPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Attack Graph</h1>
+          <h1 className="text-2xl font-bold tracking-tight">{t("graph.title")}</h1>
           <p className="text-sm text-muted-foreground">
-            Visualize attack paths and knowledge graph from Neo4j
+            {t("graph.subtitle")}
           </p>
         </div>
 
@@ -72,7 +75,7 @@ export default function GraphPage() {
           >
             {engagements.map((eng) => (
               <option key={eng.id} value={eng.id}>
-                {eng.name} ({eng.status})
+                {eng.name} ({statusLabel(locale, eng.status)})
               </option>
             ))}
           </select>
@@ -86,8 +89,8 @@ export default function GraphPage() {
           <CardContent className="flex items-center justify-center py-24">
             <div className="text-center text-sm text-muted-foreground">
               <Network className="mx-auto mb-3 h-8 w-8 opacity-50" />
-              <p>No engagements found.</p>
-              <p className="mt-1 text-xs">Create an engagement to start building an attack graph.</p>
+              <p>{t("graph.empty.title")}</p>
+              <p className="mt-1 text-xs">{t("graph.empty.description")}</p>
             </div>
           </CardContent>
         </Card>

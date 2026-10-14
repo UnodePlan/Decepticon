@@ -13,6 +13,8 @@ import {
   Target,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n-context";
+import type { TranslationKey } from "@/lib/i18n";
 
 // ── Types ───────────────────────────────────────────────────────
 
@@ -35,37 +37,37 @@ interface OpplanLiveOverlayProps {
 
 const statusConfig: Record<
   string,
-  { icon: typeof CheckCircle2; color: string; label: string }
+  { icon: typeof CheckCircle2; color: string; labelKey: TranslationKey }
 > = {
   completed: {
     icon: CheckCircle2,
     color: "text-green-400",
-    label: "Passed",
+    labelKey: "objective.completed",
   },
   blocked: {
     icon: XCircle,
     color: "text-red-400",
-    label: "Blocked",
+    labelKey: "objective.blocked",
   },
   "in-progress": {
     icon: Loader2,
     color: "text-amber-400",
-    label: "Running",
+    labelKey: "objective.running",
   },
   "in_progress": {
     icon: Loader2,
     color: "text-amber-400",
-    label: "Running",
+    labelKey: "objective.running",
   },
   pending: {
     icon: Clock,
     color: "text-muted-foreground",
-    label: "Pending",
+    labelKey: "objective.pending",
   },
   cancelled: {
     icon: XCircle,
     color: "text-zinc-600",
-    label: "Cancelled",
+    labelKey: "objective.cancelled",
   },
 };
 
@@ -78,6 +80,7 @@ interface ObjectiveRowProps {
 }
 
 function ObjectiveRow({ obj, expandedObjectiveId, onToggleExpand }: ObjectiveRowProps) {
+  const { t } = useI18n();
   const config = statusConfig[obj.status] ?? statusConfig.pending;
   const StatusIcon = config.icon;
   const isInProgress = obj.status === "in-progress" || obj.status === "in_progress";
@@ -167,6 +170,7 @@ export function OpplanLiveOverlay({
   engagementId,
   className,
 }: OpplanLiveOverlayProps) {
+  const { t } = useI18n();
   const [objectives, setObjectives] = useState<Objective[]>([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(false);
@@ -219,7 +223,7 @@ export function OpplanLiveOverlay({
       >
         <div className="flex items-center gap-2 px-3 py-2.5">
           <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-          <span className="text-xs text-zinc-500">Loading OPPLAN…</span>
+          <span className="text-xs text-zinc-500">{t("objective.loading")}</span>
         </div>
       </div>
     );
@@ -237,7 +241,7 @@ export function OpplanLiveOverlay({
       >
         <div className="flex items-center gap-2 px-3 py-2.5">
           <Target className="h-3.5 w-3.5 text-zinc-600" />
-          <span className="text-xs text-zinc-500">No OPPLAN objectives</span>
+          <span className="text-xs text-zinc-500">{t("objective.empty")}</span>
         </div>
       </div>
     );
@@ -278,9 +282,8 @@ export function OpplanLiveOverlay({
         <Target className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
         <span className="flex-1 text-xs text-zinc-400">
           <span className="font-medium text-zinc-200">
-            {resolved}/{total}
-          </span>{" "}
-          objectives
+            {t("plan.progress.objectives", { resolved, total })}
+          </span>
         </span>
         <span className="text-[10px] text-zinc-600">
           {Math.round(progress)}%

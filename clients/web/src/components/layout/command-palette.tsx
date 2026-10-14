@@ -14,19 +14,24 @@ import {
   FolderOpen,
   Download,
   Search,
+  Gauge,
+  Activity,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n-context";
+import type { TranslationKey } from "@/lib/i18n";
 
 interface CommandItem {
   id: string;
-  label: string;
+  labelKey: TranslationKey;
   shortcut?: string;
   icon: typeof Search;
   action: () => void;
-  section: string;
+  sectionKey: TranslationKey;
 }
 
 export function CommandPalette() {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -39,25 +44,27 @@ export function CommandPalette() {
 
   const commands: CommandItem[] = [
     // Global
-    { id: "home", label: "Go to Dashboard", shortcut: "G D", icon: LayoutDashboard, action: () => router.push("/"), section: "Navigation" },
-    { id: "engagements", label: "Go to Engagements", shortcut: "G E", icon: Crosshair, action: () => router.push("/engagements"), section: "Navigation" },
-    { id: "settings", label: "Go to Settings", icon: Settings, action: () => router.push("/settings"), section: "Navigation" },
-    { id: "graph", label: "Go to Attack Graph", icon: Network, action: () => router.push("/graph"), section: "Navigation" },
+    { id: "home", labelKey: "palette.goDashboard", shortcut: "G D", icon: LayoutDashboard, action: () => router.push("/"), sectionKey: "palette.section.navigation" },
+    { id: "engagements", labelKey: "palette.goEngagements", shortcut: "G E", icon: Crosshair, action: () => router.push("/engagements"), sectionKey: "palette.section.navigation" },
+    { id: "settings", labelKey: "palette.goSettingsModels", icon: Settings, action: () => router.push("/settings/models"), sectionKey: "palette.section.navigation" },
+    { id: "settings-runtime", labelKey: "palette.goSettingsRuntime", icon: Gauge, action: () => router.push("/settings/runtime"), sectionKey: "palette.section.navigation" },
+    { id: "settings-status", labelKey: "palette.goSettingsStatus", icon: Activity, action: () => router.push("/settings/status"), sectionKey: "palette.section.navigation" },
+    { id: "graph", labelKey: "palette.goAttackGraph", icon: Network, action: () => router.push("/graph"), sectionKey: "palette.section.navigation" },
     // Engagement-scoped (only when in an engagement)
     ...(engId ? [
-      { id: "live", label: "Go to Live Terminal", shortcut: "G L", icon: Radio, action: () => router.push(`/engagements/${engId}/live`), section: "Engagement" },
-      { id: "plan", label: "Go to Plan", shortcut: "G P", icon: ClipboardList, action: () => router.push(`/engagements/${engId}/plan`), section: "Engagement" },
-      { id: "timeline", label: "Go to Timeline", icon: Clock, action: () => router.push(`/engagements/${engId}/timeline`), section: "Engagement" },
-      { id: "docs", label: "Go to Documents", icon: FolderOpen, action: () => router.push(`/engagements/${engId}/documents`), section: "Engagement" },
-      { id: "findings", label: "Go to Findings", shortcut: "G F", icon: FileWarning, action: () => router.push(`/engagements/${engId}/findings`), section: "Engagement" },
-      { id: "eng-graph", label: "Go to Engagement Graph", icon: Network, action: () => router.push(`/engagements/${engId}/graph`), section: "Engagement" },
-      { id: "export-json", label: "Export Engagement (JSON)", icon: Download, action: () => window.open(`/api/engagements/${engId}/export?format=json`), section: "Actions" },
-      { id: "export-md", label: "Export Engagement (Markdown)", icon: Download, action: () => window.open(`/api/engagements/${engId}/export?format=markdown`), section: "Actions" },
-    ] : []),
+      { id: "live", labelKey: "palette.goLive", shortcut: "G L", icon: Radio, action: () => router.push(`/engagements/${engId}/live`), sectionKey: "palette.section.engagement" },
+      { id: "plan", labelKey: "palette.goPlan", shortcut: "G P", icon: ClipboardList, action: () => router.push(`/engagements/${engId}/plan`), sectionKey: "palette.section.engagement" },
+      { id: "timeline", labelKey: "palette.goTimeline", icon: Clock, action: () => router.push(`/engagements/${engId}/timeline`), sectionKey: "palette.section.engagement" },
+      { id: "docs", labelKey: "palette.goDocuments", icon: FolderOpen, action: () => router.push(`/engagements/${engId}/documents`), sectionKey: "palette.section.engagement" },
+      { id: "findings", labelKey: "palette.goFindings", shortcut: "G F", icon: FileWarning, action: () => router.push(`/engagements/${engId}/findings`), sectionKey: "palette.section.engagement" },
+      { id: "eng-graph", labelKey: "palette.goEngagementGraph", icon: Network, action: () => router.push(`/engagements/${engId}/graph`), sectionKey: "palette.section.engagement" },
+      { id: "export-json", labelKey: "palette.exportJson", icon: Download, action: () => window.open(`/api/engagements/${engId}/export?format=json`), sectionKey: "palette.section.actions" },
+      { id: "export-md", labelKey: "palette.exportMarkdown", icon: Download, action: () => window.open(`/api/engagements/${engId}/export?format=markdown`), sectionKey: "palette.section.actions" },
+    ] as CommandItem[] : []),
   ];
 
   const filtered = query
-    ? commands.filter((c) => c.label.toLowerCase().includes(query.toLowerCase()))
+    ? commands.filter((c) => t(c.labelKey).toLowerCase().includes(query.toLowerCase()))
     : commands;
 
   // Reset selection when filter changes
@@ -103,11 +110,10 @@ export function CommandPalette() {
   if (!open) return null;
 
   // Group by section
-  const sections = new Map<string, CommandItem[]>();
+  const sections: Record<string, CommandItem[]> = {};
   for (const cmd of filtered) {
-    const list = sections.get(cmd.section) ?? [];
-    list.push(cmd);
-    sections.set(cmd.section, list);
+    const title = t(cmd.sectionKey);
+    sections[title] = [...(sections[title] ?? []), cmd];
   }
 
   return (
@@ -124,7 +130,7 @@ export function CommandPalette() {
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Type a command..."
+            placeholder={t("palette.placeholder")}
             className="flex-1 bg-transparent text-sm text-white outline-none placeholder:text-zinc-500"
             autoFocus
           />
@@ -134,9 +140,9 @@ export function CommandPalette() {
         {/* Results */}
         <div className="max-h-[340px] overflow-auto p-2">
           {filtered.length === 0 ? (
-            <p className="py-8 text-center text-sm text-zinc-500">No commands found</p>
+            <p className="py-8 text-center text-sm text-zinc-500">{t("palette.noResults")}</p>
           ) : (
-            Array.from(sections.entries()).map(([section, items]) => (
+            Object.entries(sections).map(([section, items]) => (
               <div key={section} className="mb-1">
                 <p className="px-2 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-600">
                   {section}
@@ -156,7 +162,7 @@ export function CommandPalette() {
                       )}
                     >
                       <cmd.icon className="h-4 w-4 shrink-0 text-zinc-500" />
-                      <span className="flex-1">{cmd.label}</span>
+                      <span className="flex-1">{t(cmd.labelKey)}</span>
                       {cmd.shortcut && (
                         <kbd className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-600">
                           {cmd.shortcut}
@@ -172,9 +178,9 @@ export function CommandPalette() {
 
         {/* Footer */}
         <div className="border-t border-white/[0.06] px-4 py-2 text-[10px] text-zinc-600">
-          <span className="mr-3">↑↓ navigate</span>
-          <span className="mr-3">↵ select</span>
-          <span>esc close</span>
+          <span className="mr-3">{t("palette.navigate")}</span>
+          <span className="mr-3">{t("palette.select")}</span>
+          <span>{t("palette.close")}</span>
         </div>
       </div>
     </>

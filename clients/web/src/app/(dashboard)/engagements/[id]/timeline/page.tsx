@@ -8,6 +8,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ClipboardList, FileWarning, FolderOpen, Clock, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n-context";
+import { severityLabel } from "@/lib/i18n";
 
 interface TimelineEvent {
   timestamp: string;
@@ -32,6 +34,7 @@ const sevColor: Record<string, string> = {
 };
 
 export default function TimelinePage() {
+  const { t, locale } = useI18n();
   const params = useParams();
   const id = params.id as string;
   const [events, setEvents] = useState<TimelineEvent[]>([]);
@@ -63,14 +66,14 @@ export default function TimelinePage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Timeline</h1>
-          <p className="text-sm text-muted-foreground">{events.length} events</p>
+          <h1 className="text-2xl font-bold tracking-tight">{t("timeline.title")}</h1>
+          <p className="text-sm text-muted-foreground">{t("timeline.events", { count: events.length })}</p>
         </div>
         <a
           href={`/api/engagements/${id}/export?format=json`}
           className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs transition-colors hover:bg-accent"
         >
-          <Download className="h-3 w-3" /> Export JSON
+          <Download className="h-3 w-3" /> {t("engagement.exportJson")}
         </a>
       </div>
 
@@ -80,7 +83,7 @@ export default function TimelinePage() {
             <div className="divide-y divide-border/50">
               {events.length === 0 ? (
                 <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">
-                  <Clock className="mr-2 h-5 w-5" /> No activity recorded yet
+                  <Clock className="mr-2 h-5 w-5" /> {t("timeline.empty")}
                 </div>
               ) : (
                 events.map((event, i) => {
@@ -96,7 +99,7 @@ export default function TimelinePage() {
                           <span className="text-sm font-medium">{event.title}</span>
                           {event.severity && (
                             <Badge className={cn("text-[10px]", sevColor[event.severity])}>
-                              {event.severity}
+                              {severityLabel(locale, event.severity)}
                             </Badge>
                           )}
                         </div>

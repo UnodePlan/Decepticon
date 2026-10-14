@@ -21,6 +21,8 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Plus, Globe, Server } from "lucide-react";
+import { useI18n } from "@/lib/i18n-context";
+import { statusLabel } from "@/lib/i18n";
 interface Engagement {
   id: string;
   name: string;
@@ -44,6 +46,7 @@ const targetIcons: Record<string, typeof Globe> = {
 };
 
 export default function EngagementsPage() {
+  const { t, locale } = useI18n();
   const [engagements, setEngagements] = useState<Engagement[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -75,24 +78,24 @@ export default function EngagementsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Engagements</h1>
+          <h1 className="text-2xl font-bold tracking-tight">{t("engagements.title")}</h1>
           <p className="text-sm text-muted-foreground">
-            Manage your red team testing operations
+            {t("engagements.subtitle")}
           </p>
         </div>
         <Link href="/engagements/new">
           <Button>
             <Plus className="mr-2 h-4 w-4" />
-            New Engagement
+            {t("engagements.new")}
           </Button>
         </Link>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">All Engagements</CardTitle>
+          <CardTitle className="text-base">{t("engagements.all.title")}</CardTitle>
           <CardDescription>
-            A list of all your security testing engagements
+            {t("engagements.all.subtitle")}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -104,17 +107,16 @@ export default function EngagementsPage() {
             </div>
           ) : engagements.length === 0 ? (
             <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
-              No engagements yet. Click &quot;New Engagement&quot; to create
-              one.
+              {t("engagements.empty")}
             </div>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Target</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Created</TableHead>
+                  <TableHead>{t("engagements.table.name")}</TableHead>
+                  <TableHead>{t("engagements.table.target")}</TableHead>
+                  <TableHead>{t("engagements.table.status")}</TableHead>
+                  <TableHead>{t("engagements.table.created")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -143,7 +145,7 @@ export default function EngagementsPage() {
                           variant="outline"
                           className={statusColors[eng.status] ?? ""}
                         >
-                          {eng.status}
+                          {statusLabel(locale, eng.status)}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">

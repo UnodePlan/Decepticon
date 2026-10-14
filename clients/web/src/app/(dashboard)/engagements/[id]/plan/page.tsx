@@ -15,22 +15,24 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { RenderStructuredDocument } from "@/components/plan/structured-document";
+import { useI18n } from "@/lib/i18n-context";
+import type { TranslationKey } from "@/lib/i18n";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 // ── Document metadata ──────────────────────────────────────────────
 
-const DOC_META = [
-  { key: "opplan", label: "OPPLAN", desc: "Operations Plan", icon: Target, color: "text-amber-400" },
-  { key: "roe", label: "ROE", desc: "Rules of Engagement", icon: Shield, color: "text-emerald-400" },
-  { key: "threat-profile", label: "Threat Profile", desc: "Adversary Persona and TTPs", icon: Target, color: "text-red-400" },
-  { key: "conops", label: "CONOPS", desc: "Concept of Operations", icon: FileText, color: "text-cyan-400" },
-  { key: "deconfliction", label: "Deconfliction", desc: "Deconfliction Plan", icon: Radio, color: "text-purple-400" },
-  { key: "contact", label: "Contacts", desc: "Contact and Escalation Plan", icon: FileText, color: "text-blue-400" },
-  { key: "data-handling", label: "Data Handling", desc: "Evidence Retention and Custody", icon: Shield, color: "text-teal-400" },
-  { key: "abort", label: "Abort Plan", desc: "Emergency Halt Conditions", icon: AlertTriangle, color: "text-orange-400" },
-  { key: "cleanup", label: "Cleanup Plan", desc: "Artifact Removal Plan", icon: CheckCircle2, color: "text-lime-400" },
-] as const;
+const DOC_META: { key: string; labelKey: TranslationKey; descKey: TranslationKey; icon: typeof Target; color: string }[] = [
+  { key: "opplan", labelKey: "plan.doc.opplan", descKey: "plan.doc.opplan.desc", icon: Target, color: "text-amber-400" },
+  { key: "roe", labelKey: "plan.doc.roe", descKey: "plan.doc.roe.desc", icon: Shield, color: "text-emerald-400" },
+  { key: "threat-profile", labelKey: "plan.doc.threatProfile", descKey: "plan.doc.threatProfile.desc", icon: Target, color: "text-red-400" },
+  { key: "conops", labelKey: "plan.doc.conops", descKey: "plan.doc.conops.desc", icon: FileText, color: "text-cyan-400" },
+  { key: "deconfliction", labelKey: "plan.doc.deconfliction", descKey: "plan.doc.deconfliction.desc", icon: Radio, color: "text-purple-400" },
+  { key: "contact", labelKey: "plan.doc.contact", descKey: "plan.doc.contact.desc", icon: FileText, color: "text-blue-400" },
+  { key: "data-handling", labelKey: "plan.doc.dataHandling", descKey: "plan.doc.dataHandling.desc", icon: Shield, color: "text-teal-400" },
+  { key: "abort", labelKey: "plan.doc.abort", descKey: "plan.doc.abort.desc", icon: AlertTriangle, color: "text-orange-400" },
+  { key: "cleanup", labelKey: "plan.doc.cleanup", descKey: "plan.doc.cleanup.desc", icon: CheckCircle2, color: "text-lime-400" },
+];
 
 // ── Status helpers ─────────────────────────────────────────────────
 
@@ -94,6 +96,7 @@ function Field({ label, value }: { label: string; value: unknown }) {
 // ── OPPLAN renderer ────────────────────────────────────────────────
 
 function RenderOpplan({ data }: { data: any }) {
+  const { t } = useI18n();
   const objectives: any[] = data.objectives ?? [];
   const completed = objectives.filter((o: any) => o.status === "completed").length;
   const blocked = objectives.filter((o: any) => o.status === "blocked").length;
@@ -102,18 +105,18 @@ function RenderOpplan({ data }: { data: any }) {
 
   return (
     <div className="space-y-6">
-      <Section title="Engagement">
-        <Field label="Name" value={data.engagement_name} />
-        <Field label="Threat Profile" value={data.threat_profile} />
+      <Section title={t("plan.section.engagement")}>
+        <Field label={t("common.name")} value={data.engagement_name} />
+        <Field label={t("plan.field.threatProfile")} value={data.threat_profile} />
       </Section>
 
       <Separator className="opacity-30" />
 
-      <Section title="Progress">
+      <Section title={t("plan.section.progress")}>
         <div className="space-y-2">
           <div className="flex items-center justify-between text-sm">
             <span className="text-muted-foreground">
-              {completed + blocked}/{total} objectives
+              {t("plan.progress.objectives", { resolved: completed + blocked, total })}
             </span>
             <span className="font-medium">{Math.round(progress)}%</span>
           </div>
@@ -124,9 +127,9 @@ function RenderOpplan({ data }: { data: any }) {
             />
           </div>
           <div className="flex gap-4 text-xs text-muted-foreground">
-            <span className="text-green-400">{completed} passed</span>
-            <span className="text-red-400">{blocked} blocked</span>
-            <span>{total - completed - blocked} remaining</span>
+            <span className="text-green-400">{t("plan.progress.passed", { count: completed })}</span>
+            <span className="text-red-400">{t("plan.progress.blocked", { count: blocked })}</span>
+            <span>{t("plan.progress.remaining", { count: total - completed - blocked })}</span>
           </div>
         </div>
       </Section>
@@ -134,15 +137,15 @@ function RenderOpplan({ data }: { data: any }) {
       {objectives.length > 0 && (
         <>
           <Separator className="opacity-30" />
-          <Section title="Objectives">
+          <Section title={t("plan.section.objectives")}>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-20">ID</TableHead>
-                  <TableHead>Title</TableHead>
-                  <TableHead className="w-28">Phase</TableHead>
-                  <TableHead className="w-24">OPSEC</TableHead>
-                  <TableHead className="w-24">Status</TableHead>
+                  <TableHead className="w-20">{t("common.id")}</TableHead>
+                  <TableHead>{t("common.title")}</TableHead>
+                  <TableHead className="w-28">{t("common.phase")}</TableHead>
+                  <TableHead className="w-24">{t("plan.field.opsec")}</TableHead>
+                  <TableHead className="w-24">{t("common.status")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -200,6 +203,7 @@ function RenderOpplan({ data }: { data: any }) {
 // ── CONOPS renderer ────────────────────────────────────────────────
 
 function RenderConops({ data }: { data: any }) {
+  const { t } = useI18n();
   const actors: any[] = data.threat_actors ?? [];
   const killchain: any[] = data.kill_chain ?? [];
   const criteria: string[] = data.success_criteria ?? [];
@@ -207,15 +211,15 @@ function RenderConops({ data }: { data: any }) {
 
   return (
     <div className="space-y-6">
-      <Section title="Engagement">
-        <Field label="Name" value={data.engagement_name} />
-        <Field label="Methodology" value={data.methodology} />
+      <Section title={t("plan.section.engagement")}>
+        <Field label={t("common.name")} value={data.engagement_name} />
+        <Field label={t("plan.field.methodology")} value={data.methodology} />
       </Section>
 
       {data.executive_summary && (
         <>
           <Separator className="opacity-30" />
-          <Section title="Executive Summary">
+          <Section title={t("plan.section.executiveSummary")}>
             <SafeText value={data.executive_summary} className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap" />
           </Section>
         </>
@@ -224,14 +228,14 @@ function RenderConops({ data }: { data: any }) {
       {actors.length > 0 && (
         <>
           <Separator className="opacity-30" />
-          <Section title="Threat Actors">
+          <Section title={t("plan.section.threatActors")}>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Actor</TableHead>
-                  <TableHead>Sophistication</TableHead>
-                  <TableHead>Motivation</TableHead>
-                  <TableHead>Key TTPs</TableHead>
+                  <TableHead>{t("plan.field.actor")}</TableHead>
+                  <TableHead>{t("plan.field.sophistication")}</TableHead>
+                  <TableHead>{t("plan.field.motivation")}</TableHead>
+                  <TableHead>{t("plan.field.keyTtps")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -260,7 +264,7 @@ function RenderConops({ data }: { data: any }) {
       {data.attack_narrative && (
         <>
           <Separator className="opacity-30" />
-          <Section title="Attack Narrative">
+          <Section title={t("plan.section.attackNarrative")}>
             <SafeText value={data.attack_narrative} className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap" />
           </Section>
         </>
@@ -269,13 +273,13 @@ function RenderConops({ data }: { data: any }) {
       {killchain.length > 0 && (
         <>
           <Separator className="opacity-30" />
-          <Section title="Kill Chain">
+          <Section title={t("plan.section.killChain")}>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-32">Phase</TableHead>
-                  <TableHead>Description</TableHead>
-                  <TableHead className="w-40">Tools</TableHead>
+                  <TableHead className="w-32">{t("common.phase")}</TableHead>
+                  <TableHead>{t("common.description")}</TableHead>
+                  <TableHead className="w-40">{t("common.tools")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -299,12 +303,12 @@ function RenderConops({ data }: { data: any }) {
       {Object.keys(timeline).length > 0 && (
         <>
           <Separator className="opacity-30" />
-          <Section title="Timeline">
+          <Section title={t("plan.section.timeline")}>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Phase</TableHead>
-                  <TableHead>Duration</TableHead>
+                  <TableHead>{t("common.phase")}</TableHead>
+                  <TableHead>{t("common.duration")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -323,7 +327,7 @@ function RenderConops({ data }: { data: any }) {
       {criteria.length > 0 && (
         <>
           <Separator className="opacity-30" />
-          <Section title="Success Criteria">
+          <Section title={t("plan.section.successCriteria")}>
             <ul className="space-y-1.5">
               {criteria.map((c, i) => (
                 <li key={i} className="flex items-start gap-2 text-sm">
@@ -339,7 +343,7 @@ function RenderConops({ data }: { data: any }) {
       {data.communication_plan && (
         <>
           <Separator className="opacity-30" />
-          <Section title="Communication Plan">
+          <Section title={t("plan.section.communicationPlan")}>
             {typeof data.communication_plan === "string" ? (
               <p className="text-sm text-foreground/90 whitespace-pre-wrap">{data.communication_plan}</p>
             ) : (
@@ -359,6 +363,7 @@ function RenderConops({ data }: { data: any }) {
 // ── ROE renderer ───────────────────────────────────────────────────
 
 function RenderRoe({ data }: { data: any }) {
+  const { t } = useI18n();
   const inScope: any[] = data.in_scope ?? [];
   const outScope: any[] = data.out_of_scope ?? [];
   const prohibited: string[] = data.prohibited_actions ?? [];
@@ -367,27 +372,27 @@ function RenderRoe({ data }: { data: any }) {
 
   return (
     <div className="space-y-6">
-      <Section title="Engagement Details">
-        <Field label="Name" value={data.engagement_name} />
-        <Field label="Client" value={data.client} />
-        <Field label="Type" value={data.engagement_type} />
-        <Field label="Start Date" value={data.start_date} />
-        <Field label="End Date" value={data.end_date} />
-        <Field label="Testing Window" value={data.testing_window} />
-        <Field label="Authorization" value={data.authorization_reference} />
-        <Field label="Version" value={data.version} />
+      <Section title={t("plan.section.engagementDetails")}>
+        <Field label={t("common.name")} value={data.engagement_name} />
+        <Field label={t("plan.field.client")} value={data.client} />
+        <Field label={t("common.type")} value={data.engagement_type} />
+        <Field label={t("plan.field.startDate")} value={data.start_date} />
+        <Field label={t("plan.field.endDate")} value={data.end_date} />
+        <Field label={t("plan.field.testingWindow")} value={data.testing_window} />
+        <Field label={t("plan.field.authorization")} value={data.authorization_reference} />
+        <Field label={t("plan.field.version")} value={data.version} />
       </Section>
 
       {inScope.length > 0 && (
         <>
           <Separator className="opacity-30" />
-          <Section title="In Scope">
+          <Section title={t("plan.section.inScope")}>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Target</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Notes</TableHead>
+                  <TableHead>{t("plan.field.target")}</TableHead>
+                  <TableHead>{t("common.type")}</TableHead>
+                  <TableHead>{t("common.notes")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -409,13 +414,13 @@ function RenderRoe({ data }: { data: any }) {
       {outScope.length > 0 && (
         <>
           <Separator className="opacity-30" />
-          <Section title="Out of Scope">
+          <Section title={t("plan.section.outOfScope")}>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Target</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Notes</TableHead>
+                  <TableHead>{t("plan.field.target")}</TableHead>
+                  <TableHead>{t("common.type")}</TableHead>
+                  <TableHead>{t("common.notes")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -437,7 +442,7 @@ function RenderRoe({ data }: { data: any }) {
       {prohibited.length > 0 && (
         <>
           <Separator className="opacity-30" />
-          <Section title="Prohibited Actions">
+          <Section title={t("plan.section.prohibitedActions")}>
             <ul className="space-y-1.5">
               {prohibited.map((p, i) => (
                 <li key={i} className="flex items-start gap-2 text-sm">
@@ -453,7 +458,7 @@ function RenderRoe({ data }: { data: any }) {
       {permitted.length > 0 && (
         <>
           <Separator className="opacity-30" />
-          <Section title="Permitted Actions">
+          <Section title={t("plan.section.permittedActions")}>
             <ul className="space-y-1.5">
               {permitted.map((p, i) => (
                 <li key={i} className="flex items-start gap-2 text-sm">
@@ -469,14 +474,14 @@ function RenderRoe({ data }: { data: any }) {
       {contacts.length > 0 && (
         <>
           <Separator className="opacity-30" />
-          <Section title="Escalation Contacts">
+          <Section title={t("plan.section.escalationContacts")}>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead>Channel</TableHead>
-                  <TableHead>Available</TableHead>
+                  <TableHead>{t("common.name")}</TableHead>
+                  <TableHead>{t("common.role")}</TableHead>
+                  <TableHead>{t("common.channel")}</TableHead>
+                  <TableHead>{t("common.available")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -497,7 +502,7 @@ function RenderRoe({ data }: { data: any }) {
       {data.incident_procedure && (
         <>
           <Separator className="opacity-30" />
-          <Section title="Incident Procedure">
+          <Section title={t("plan.section.incidentProcedure")}>
             <SafeText value={data.incident_procedure} className="text-sm text-foreground/90 whitespace-pre-wrap" />
           </Section>
         </>
@@ -506,15 +511,15 @@ function RenderRoe({ data }: { data: any }) {
       {data.data_handling && (
         <>
           <Separator className="opacity-30" />
-          <Section title="Data Handling">
+          <Section title={t("plan.section.dataHandling")}>
             <SafeText value={data.data_handling} className="text-sm text-foreground/90 whitespace-pre-wrap" />
           </Section>
         </>
       )}
 
       <Separator className="opacity-30" />
-      <Section title="Cleanup">
-        <Field label="Cleanup Required" value={data.cleanup_required ? "Yes" : "No"} />
+      <Section title={t("plan.section.cleanup")}>
+        <Field label={t("plan.field.cleanupRequired")} value={t(data.cleanup_required ? "common.yes" : "common.no")} />
       </Section>
     </div>
   );
@@ -523,26 +528,27 @@ function RenderRoe({ data }: { data: any }) {
 // ── Deconfliction renderer ─────────────────────────────────────────
 
 function RenderDeconfliction({ data }: { data: any }) {
+  const { t } = useI18n();
   const identifiers: any[] = data.identifiers ?? [];
 
   return (
     <div className="space-y-6">
-      <Section title="Engagement">
-        <Field label="Name" value={data.engagement_name} />
-        <Field label="SOC Contact" value={data.soc_contact} />
-        <Field label="Deconfliction Code" value={data.deconfliction_code} />
+      <Section title={t("plan.section.engagement")}>
+        <Field label={t("common.name")} value={data.engagement_name} />
+        <Field label={t("plan.field.socContact")} value={data.soc_contact} />
+        <Field label={t("plan.field.deconflictionCode")} value={data.deconfliction_code} />
       </Section>
 
       {identifiers.length > 0 && (
         <>
           <Separator className="opacity-30" />
-          <Section title="Red Team Identifiers">
+          <Section title={t("plan.section.redTeamIdentifiers")}>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Value</TableHead>
-                  <TableHead>Description</TableHead>
+                  <TableHead>{t("common.type")}</TableHead>
+                  <TableHead>{t("common.value")}</TableHead>
+                  <TableHead>{t("common.description")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -564,7 +570,7 @@ function RenderDeconfliction({ data }: { data: any }) {
       {data.notification_procedure && (
         <>
           <Separator className="opacity-30" />
-          <Section title="Notification Procedure">
+          <Section title={t("plan.section.notificationProcedure")}>
             <SafeText value={data.notification_procedure} className="text-sm text-foreground/90 whitespace-pre-wrap" />
           </Section>
         </>
@@ -590,6 +596,7 @@ const renderers: Record<string, React.FC<{ data: any }>> = {
 // ── Page ───────────────────────────────────────────────────────────
 
 export default function PlanPage() {
+  const { t } = useI18n();
   const params = useParams();
   const id = params.id as string;
   const [docs, setDocs] = useState<Record<string, any>>({});
@@ -632,15 +639,15 @@ export default function PlanPage() {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Plan</h1>
-          <p className="text-sm text-muted-foreground">Engagement planning documents</p>
+          <h1 className="text-2xl font-bold tracking-tight">{t("plan.title")}</h1>
+          <p className="text-sm text-muted-foreground">{t("plan.subtitle")}</p>
         </div>
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-16">
             <Target className="mb-3 h-10 w-10 text-muted-foreground/30" />
-            <p className="text-sm font-medium">No plan documents yet</p>
+            <p className="text-sm font-medium">{t("plan.empty.title")}</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              Start the engagement from the Live tab — Soundwave will generate planning documents.
+              {t("plan.empty.description")}
             </p>
           </CardContent>
         </Card>
@@ -657,8 +664,8 @@ export default function PlanPage() {
       {/* Left: Document list */}
       <div className="w-64 shrink-0 space-y-1.5">
         <div className="mb-3">
-          <h1 className="text-lg font-bold tracking-tight">Plan</h1>
-          <p className="text-xs text-muted-foreground">Engagement documents</p>
+          <h1 className="text-lg font-bold tracking-tight">{t("plan.title")}</h1>
+          <p className="text-xs text-muted-foreground">{t("plan.documents")}</p>
         </div>
 
         {DOC_META.map((doc) => {
@@ -681,9 +688,9 @@ export default function PlanPage() {
               <doc.icon className={cn("h-4 w-4 shrink-0", active ? doc.color : "text-muted-foreground")} />
               <div className="min-w-0 flex-1">
                 <div className={cn("text-sm font-medium", active ? "text-foreground" : "text-muted-foreground")}>
-                  {doc.label}
+                  {t(doc.labelKey)}
                 </div>
-                <div className="text-[10px] text-muted-foreground/70 truncate">{doc.desc}</div>
+                <div className="text-[10px] text-muted-foreground/70 truncate">{t(doc.descKey)}</div>
               </div>
               {exists ? (
                 <CheckCircle2 className="h-3 w-3 shrink-0 text-emerald-500/70" />
@@ -702,9 +709,9 @@ export default function PlanPage() {
             {selectedMeta && (
               <selectedMeta.icon className={cn("h-4 w-4", selectedMeta.color)} />
             )}
-            {selectedMeta?.label ?? "Select a document"}
+            {selectedMeta ? t(selectedMeta.labelKey) : t("plan.selectDocument")}
             <span className="text-xs font-normal text-muted-foreground">
-              {selectedMeta?.desc}
+              {selectedMeta ? t(selectedMeta.descKey) : null}
             </span>
           </CardTitle>
         </CardHeader>
@@ -715,7 +722,7 @@ export default function PlanPage() {
                 <Renderer data={selectedData} />
               ) : (
                 <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">
-                  Select a document from the sidebar
+                  {t("plan.selectDocumentHint")}
                 </div>
               )}
             </div>

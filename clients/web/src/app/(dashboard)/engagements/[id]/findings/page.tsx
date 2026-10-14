@@ -22,6 +22,8 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { FileWarning, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useI18n } from "@/lib/i18n-context";
+import { severityLabel } from "@/lib/i18n";
 interface Finding {
   id: string;
   title: string;
@@ -54,6 +56,7 @@ const severityOrder: Record<string, number> = {
 };
 
 export default function FindingsPage() {
+  const { t, locale } = useI18n();
   const params = useParams();
   const engagementId = params.id as string;
   const [findings, setFindings] = useState<Finding[]>([]);
@@ -103,7 +106,7 @@ export default function FindingsPage() {
           onClick={() => setSelectedFinding(null)}
         >
           <ArrowLeft className="mr-2 h-4 w-4" />
-          Back to findings
+          {t("findings.back")}
         </Button>
 
         <div className="space-y-1">
@@ -118,7 +121,7 @@ export default function FindingsPage() {
               variant="outline"
               className={severityColors[selectedFinding.severity] ?? ""}
             >
-              {selectedFinding.severity}
+              {severityLabel(locale, selectedFinding.severity)}
             </Badge>
             {selectedFinding.cvssScore != null && (
               <Badge variant="outline" className="font-mono text-xs">
@@ -136,7 +139,7 @@ export default function FindingsPage() {
 
         {selectedFinding.cvssVector && (
           <div className="rounded-lg border border-border/50 bg-muted/30 px-4 py-2">
-            <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">CVSS Vector</span>
+            <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t("findings.detail.cvssVector")}</span>
             <p className="mt-0.5 font-mono text-xs text-muted-foreground">{selectedFinding.cvssVector}</p>
           </div>
         )}
@@ -144,7 +147,7 @@ export default function FindingsPage() {
         <div className="grid gap-4 lg:grid-cols-2">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Description</CardTitle>
+              <CardTitle className="text-base">{t("findings.detail.description")}</CardTitle>
             </CardHeader>
             <CardContent>
               <p className="whitespace-pre-wrap text-sm text-muted-foreground">
@@ -155,7 +158,7 @@ export default function FindingsPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Attack Vector</CardTitle>
+              <CardTitle className="text-base">{t("findings.detail.attackVector")}</CardTitle>
             </CardHeader>
             <CardContent>
               <p className="whitespace-pre-wrap text-sm text-muted-foreground">
@@ -166,7 +169,7 @@ export default function FindingsPage() {
 
           <Card className="lg:col-span-2">
             <CardHeader>
-              <CardTitle className="text-base">Evidence</CardTitle>
+              <CardTitle className="text-base">{t("findings.detail.evidence")}</CardTitle>
             </CardHeader>
             <CardContent>
               <pre className="overflow-auto whitespace-pre-wrap rounded-lg bg-muted p-4 font-mono text-xs text-muted-foreground">
@@ -178,7 +181,7 @@ export default function FindingsPage() {
           {selectedFinding.affectedAssets.length > 0 && (
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Affected Assets</CardTitle>
+                <CardTitle className="text-base">{t("findings.detail.affectedAssets")}</CardTitle>
               </CardHeader>
               <CardContent>
                 <ul className="space-y-1">
@@ -198,7 +201,7 @@ export default function FindingsPage() {
           {selectedFinding.remediation && (
             <Card className="lg:col-span-2">
               <CardHeader>
-                <CardTitle className="text-base">Remediation</CardTitle>
+                <CardTitle className="text-base">{t("findings.detail.remediation")}</CardTitle>
               </CardHeader>
               <CardContent>
                 <p className="whitespace-pre-wrap text-sm text-muted-foreground">
@@ -216,22 +219,22 @@ export default function FindingsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Findings</h1>
+          <h1 className="text-2xl font-bold tracking-tight">{t("findings.title")}</h1>
           <p className="text-sm text-muted-foreground">
-            Vulnerabilities discovered in this engagement
+            {t("findings.engagement.subtitle")}
           </p>
         </div>
         <Select value={filterSeverity} onValueChange={(v) => setFilterSeverity(v ?? "all")}>
           <SelectTrigger className="w-40">
-            <SelectValue placeholder="Filter severity" />
+            <SelectValue placeholder={t("severityFilter.placeholder")} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All severities</SelectItem>
-            <SelectItem value="critical">Critical</SelectItem>
-            <SelectItem value="high">High</SelectItem>
-            <SelectItem value="medium">Medium</SelectItem>
-            <SelectItem value="low">Low</SelectItem>
-            <SelectItem value="informational">Informational</SelectItem>
+            <SelectItem value="all">{t("severityFilter.all")}</SelectItem>
+            <SelectItem value="critical">{severityLabel(locale, "critical")}</SelectItem>
+            <SelectItem value="high">{severityLabel(locale, "high")}</SelectItem>
+            <SelectItem value="medium">{severityLabel(locale, "medium")}</SelectItem>
+            <SelectItem value="low">{severityLabel(locale, "low")}</SelectItem>
+            <SelectItem value="informational">{severityLabel(locale, "informational")}</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -248,18 +251,18 @@ export default function FindingsPage() {
             <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
               <div className="text-center">
                 <FileWarning className="mx-auto mb-3 h-8 w-8 opacity-50" />
-                <p>No findings yet.</p>
+                <p>{t("findings.engagement.empty")}</p>
               </div>
             </div>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>ID</TableHead>
-                  <TableHead>Title</TableHead>
-                  <TableHead>Severity</TableHead>
-                  <TableHead>CVSS</TableHead>
-                  <TableHead>Assets</TableHead>
+                  <TableHead>{t("common.id")}</TableHead>
+                  <TableHead>{t("common.title")}</TableHead>
+                  <TableHead>{t("severityFilter.severity")}</TableHead>
+                  <TableHead>{t("findings.table.cvss")}</TableHead>
+                  <TableHead>{t("findings.table.assets")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -280,7 +283,7 @@ export default function FindingsPage() {
                         variant="outline"
                         className={severityColors[finding.severity] ?? ""}
                       >
-                        {finding.severity}
+                        {severityLabel(locale, finding.severity)}
                       </Badge>
                     </TableCell>
                     <TableCell className="font-mono text-xs text-muted-foreground">

@@ -12,6 +12,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Crosshair, FileWarning, Shield, AlertTriangle, ArrowRight } from "lucide-react";
+import { useI18n } from "@/lib/i18n-context";
+import { severityLabel, statusLabel, type TranslationKey } from "@/lib/i18n";
 
 interface Engagement {
   id: string;
@@ -29,10 +31,17 @@ interface Finding {
   engagementName?: string;
 }
 
-const metricDefs = [
+const metricDefs: {
+  key: string;
+  titleKey: TranslationKey;
+  icon: typeof Crosshair;
+  gradient: string;
+  iconColor: string;
+  borderGlow: string;
+}[] = [
   {
     key: "active",
-    title: "Active Engagements",
+    titleKey: "dashboard.metric.active",
     icon: Crosshair,
     gradient: "from-violet-500/20 to-purple-500/20",
     iconColor: "text-violet-400",
@@ -40,7 +49,7 @@ const metricDefs = [
   },
   {
     key: "findings",
-    title: "Total Findings",
+    titleKey: "dashboard.metric.findings",
     icon: FileWarning,
     gradient: "from-amber-500/20 to-orange-500/20",
     iconColor: "text-amber-400",
@@ -48,7 +57,7 @@ const metricDefs = [
   },
   {
     key: "critical",
-    title: "Critical Vulnerabilities",
+    titleKey: "dashboard.metric.critical",
     icon: AlertTriangle,
     gradient: "from-red-500/20 to-rose-500/20",
     iconColor: "text-red-400",
@@ -56,7 +65,7 @@ const metricDefs = [
   },
   {
     key: "verified",
-    title: "Defenses Verified",
+    titleKey: "dashboard.metric.verified",
     icon: Shield,
     gradient: "from-emerald-500/20 to-green-500/20",
     iconColor: "text-emerald-400",
@@ -90,6 +99,7 @@ const statusBadge: Record<string, string> = {
 };
 
 export default function DashboardPage() {
+  const { t, locale } = useI18n();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -122,7 +132,7 @@ export default function DashboardPage() {
         if (!active) return;
         setAllFindings(results.flat());
       } catch {
-        if (active) setError("Failed to load dashboard data");
+        if (active) setError(t("dashboard.loadError"));
 
       } finally {
         if (active) setLoading(false);
@@ -161,8 +171,8 @@ export default function DashboardPage() {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
-          <p className="text-sm text-muted-foreground">Overview of your security testing operations</p>
+          <h1 className="text-2xl font-bold tracking-tight">{t("dashboard.title")}</h1>
+          <p className="text-sm text-muted-foreground">{t("dashboard.subtitle")}</p>
         </div>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {[1, 2, 3, 4].map((i) => (
@@ -177,8 +187,8 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
-        <p className="text-sm text-muted-foreground">Overview of your security testing operations</p>
+        <h1 className="text-2xl font-bold tracking-tight">{t("dashboard.title")}</h1>
+        <p className="text-sm text-muted-foreground">{t("dashboard.subtitle")}</p>
       </div>
       {error && (
         <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
@@ -190,13 +200,13 @@ export default function DashboardPage() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {metricDefs.map((metric) => (
           <Card
-            key={metric.title}
+            key={metric.key}
             className={`group relative overflow-hidden transition-colors duration-200 ${metric.borderGlow}`}
           >
             <div className={`absolute inset-0 bg-gradient-to-br ${metric.gradient} opacity-0 transition-opacity duration-300 group-hover:opacity-100`} />
             <CardHeader className="relative flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                {metric.title}
+                {t(metric.titleKey)}
               </CardTitle>
               <div className={`flex h-8 w-8 items-center justify-center rounded-lg bg-white/5 ${metric.iconColor}`}>
                 <metric.icon className="h-4 w-4" />
@@ -214,8 +224,8 @@ export default function DashboardPage() {
       {/* Severity Distribution */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Severity Distribution</CardTitle>
-          <CardDescription>Findings breakdown by severity level</CardDescription>
+          <CardTitle className="text-base">{t("dashboard.severity.title")}</CardTitle>
+          <CardDescription>{t("dashboard.severity.subtitle")}</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
@@ -227,7 +237,7 @@ export default function DashboardPage() {
                 <div key={sev} className="flex items-center gap-3">
                   <div className="flex w-20 items-center gap-2">
                     <div className={`h-2.5 w-2.5 rounded-full ${colors.color}`} />
-                    <span className="text-sm capitalize text-muted-foreground">{sev === "informational" ? "Info" : sev}</span>
+                    <span className="text-sm text-muted-foreground">{severityLabel(locale, sev)}</span>
                   </div>
                   <div className="flex-1">
                     <div className="h-2 overflow-hidden rounded-full bg-secondary">
@@ -252,17 +262,17 @@ export default function DashboardPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
-              <CardTitle className="text-base">Recent Engagements</CardTitle>
-              <CardDescription>Your latest red team operations</CardDescription>
+              <CardTitle className="text-base">{t("dashboard.recent.title")}</CardTitle>
+              <CardDescription>{t("dashboard.recent.subtitle")}</CardDescription>
             </div>
             <Link href="/engagements" className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1">
-              View all <ArrowRight className="h-3 w-3" />
+              {t("dashboard.recent.viewAll")} <ArrowRight className="h-3 w-3" />
             </Link>
           </CardHeader>
           <CardContent>
             {recentEngagements.length === 0 ? (
               <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
-                No engagements yet
+                {t("dashboard.recent.empty")}
               </div>
             ) : (
               <div className="space-y-2">
@@ -273,7 +283,7 @@ export default function DashboardPage() {
                       <p className="text-xs text-muted-foreground">{new Date(eng.createdAt).toLocaleDateString()}</p>
                     </div>
                     <Badge className={`text-xs ${statusBadge[eng.status] ?? "bg-zinc-500/20 text-zinc-300"}`}>
-                      {eng.status}
+                      {statusLabel(locale, eng.status)}
                     </Badge>
                   </Link>
                 ))}
@@ -284,13 +294,13 @@ export default function DashboardPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Latest Findings</CardTitle>
-            <CardDescription>Recently discovered vulnerabilities</CardDescription>
+            <CardTitle className="text-base">{t("dashboard.latest.title")}</CardTitle>
+            <CardDescription>{t("dashboard.latest.subtitle")}</CardDescription>
           </CardHeader>
           <CardContent>
             {latestFindings.length === 0 ? (
               <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
-                No findings yet
+                {t("dashboard.latest.empty")}
               </div>
             ) : (
               <div className="space-y-2">
@@ -301,7 +311,7 @@ export default function DashboardPage() {
                       <p className="text-xs text-muted-foreground">{f.engagementName}</p>
                     </div>
                     <Badge className={`shrink-0 text-xs ${severityBadge[f.severity] ?? "bg-zinc-500/20 text-zinc-300"}`}>
-                      {f.severity}
+                      {severityLabel(locale, f.severity)}
                     </Badge>
                   </div>
                 ))}

@@ -12,6 +12,8 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FileWarning } from "lucide-react";
 import Link from "next/link";
+import { useI18n } from "@/lib/i18n-context";
+import { statusLabel } from "@/lib/i18n";
 interface Engagement {
   id: string;
   name: string;
@@ -19,6 +21,7 @@ interface Engagement {
 }
 
 export default function FindingsPage() {
+  const { t, locale } = useI18n();
   const [engagements, setEngagements] = useState<Engagement[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -49,9 +52,9 @@ export default function FindingsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Findings</h1>
+        <h1 className="text-2xl font-bold tracking-tight">{t("findings.title")}</h1>
         <p className="text-sm text-muted-foreground">
-          Discovered vulnerabilities across all engagements
+          {t("findings.subtitle")}
         </p>
       </div>
 
@@ -66,9 +69,9 @@ export default function FindingsPage() {
           <CardContent className="flex items-center justify-center py-12">
             <div className="text-center text-sm text-muted-foreground">
               <FileWarning className="mx-auto mb-3 h-8 w-8 opacity-50" />
-              <p>No completed engagements yet.</p>
+              <p>{t("findings.empty.title")}</p>
               <p className="mt-1 text-xs">
-                Complete an engagement to see findings here.
+                {t("findings.empty.description")}
               </p>
             </div>
           </CardContent>
@@ -85,13 +88,13 @@ export default function FindingsPage() {
                       variant="outline"
                       className="bg-green-500/10 text-green-400 border-green-500/20"
                     >
-                      {eng.status}
+                      {statusLabel(locale, eng.status)}
                     </Badge>
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <p className="text-xs text-muted-foreground">
-                    Click to view findings
+                    {t("findings.view")}
                   </p>
                 </CardContent>
               </Card>

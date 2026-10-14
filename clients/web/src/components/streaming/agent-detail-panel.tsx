@@ -17,6 +17,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { X, Wrench, MessageSquare, Clock } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import { useI18n } from "@/lib/i18n-context";
+import type { TranslationKey } from "@/lib/i18n";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -58,18 +60,18 @@ function deriveStatus(agentEvents: SubagentCustomEvent[]): AgentStatus {
 
 const STATUS_META: Record<
   AgentStatus,
-  { label: string; dotClass: string }
+  { labelKey: TranslationKey; dotClass: string }
 > = {
   idle: {
-    label: "Idle",
+    labelKey: "agentDetail.idle",
     dotClass: "bg-zinc-500",
   },
   processing: {
-    label: "Processing",
+    labelKey: "agentDetail.processing",
     dotClass: "bg-amber-400 animate-pulse",
   },
   completed: {
-    label: "Completed",
+    labelKey: "agentDetail.completed",
     dotClass: "bg-emerald-400",
   },
 };
@@ -96,6 +98,7 @@ export function AgentDetailPanel({
   onClose,
   className,
 }: AgentDetailPanelProps) {
+  const { t } = useI18n();
   // Escape key handler
   useEffect(() => {
     if (!agent) return;
@@ -168,7 +171,7 @@ export function AgentDetailPanel({
           type="button"
           onClick={onClose}
           className="rounded-md p-1 text-zinc-500 transition-colors hover:bg-white/[0.06] hover:text-zinc-300"
-          aria-label="Close agent detail panel"
+          aria-label={t("agentDetail.close")}
         >
           <X className="h-4 w-4" />
         </button>
@@ -179,10 +182,10 @@ export function AgentDetailPanel({
         <span
           className={cn("h-2 w-2 rounded-full shrink-0", statusMeta.dotClass)}
         />
-        <span className="text-xs text-zinc-400">{statusMeta.label}</span>
+        <span className="text-xs text-zinc-400">{t(statusMeta.labelKey)}</span>
         {agentEvents.length > 0 && (
           <span className="ml-auto text-[10px] text-zinc-600">
-            {agentEvents.length} event{agentEvents.length !== 1 ? "s" : ""}
+            {t(agentEvents.length === 1 ? "agentDetail.event" : "agentDetail.events", { count: agentEvents.length })}
           </span>
         )}
       </div>
@@ -191,7 +194,7 @@ export function AgentDetailPanel({
       <div className="flex-1 min-h-0 flex flex-col">
         <div className="px-4 pt-3 pb-1.5">
           <span className="text-[11px] font-medium uppercase tracking-wider text-zinc-600">
-            Recent Activity
+            {t("agentDetail.recentActivity")}
           </span>
         </div>
 
@@ -200,14 +203,14 @@ export function AgentDetailPanel({
             {recentEvents.length === 0 ? (
               agent.id === "decepticon" ? (
                 <div className="py-4 text-center text-xs text-zinc-500 space-y-2">
-                  <p className="font-medium text-zinc-400">Orchestrator</p>
-                  <p>Decepticon coordinates sub-agents via task() delegation.</p>
-                  <p>Activity appears on the sub-agent nodes, not here.</p>
-                  <p className="text-zinc-600 mt-2">Click a sub-agent node in the graph to see its activity.</p>
+                  <p className="font-medium text-zinc-400">{t("agentDetail.orchestrator")}</p>
+                  <p>{t("agentDetail.orchestratorHint")}</p>
+                  <p>{t("agentDetail.orchestratorNodes")}</p>
+                  <p className="text-zinc-600 mt-2">{t("agentDetail.orchestratorClick")}</p>
                 </div>
               ) : (
                 <p className="py-6 text-center text-xs text-zinc-600">
-                  No activity yet
+                  {t("agentDetail.noActivity")}
                 </p>
               )
             ) : (
@@ -228,7 +231,7 @@ export function AgentDetailPanel({
             <Separator className="bg-white/[0.08]" />
             <div className="px-4 pt-3 pb-1.5">
               <span className="text-[11px] font-medium uppercase tracking-wider text-zinc-600">
-                Latest Message
+                {t("agentDetail.latestMessage")}
               </span>
             </div>
             <ScrollArea className="max-h-[200px]">
@@ -252,6 +255,7 @@ function ActivityRow({
   event: SubagentCustomEvent;
   agentColor: string;
 }) {
+  const { t } = useI18n();
   const elapsed = event.elapsed != null ? event.elapsed * 1000 : undefined;
 
   switch (event.type) {
@@ -263,7 +267,7 @@ function ActivityRow({
           />
           <div className="min-w-0 flex-1">
             <code className="text-[11px] font-mono text-white/80">
-              {event.tool ?? "unknown"}
+              {event.tool ?? ""}
             </code>
             {event.content && (
               <p className="mt-0.5 text-[10px] text-zinc-500 truncate">
@@ -286,9 +290,9 @@ function ActivityRow({
           <Wrench className="mt-0.5 h-3 w-3 shrink-0 text-emerald-400/70" />
           <div className="min-w-0 flex-1">
             <span className="text-[11px] text-zinc-400">
-              Result:{" "}
+              {t("agentDetail.result")}{" "}
               <code className="font-mono text-white/60">
-                {event.tool ?? "tool"}
+                {event.tool ?? ""}
               </code>
             </span>
             {event.content && (
@@ -326,7 +330,7 @@ function ActivityRow({
             className="h-1.5 w-1.5 rounded-full shrink-0"
             style={{ backgroundColor: agentColor }}
           />
-          <span className="text-[11px] text-zinc-500">Started</span>
+          <span className="text-[11px] text-zinc-500">{t("agentDetail.started")}</span>
         </div>
       );
 
@@ -335,7 +339,7 @@ function ActivityRow({
         <div className="flex items-center gap-2 rounded-md px-2 py-1.5">
           <span className="h-1.5 w-1.5 rounded-full shrink-0 bg-emerald-400" />
           <span className="text-[11px] text-zinc-500">
-            Completed
+            {t("agentDetail.finished")}
             {event.status ? ` — ${event.status}` : ""}
           </span>
           {elapsed != null && (
@@ -352,7 +356,7 @@ function ActivityRow({
         <div className="flex items-start gap-2 rounded-md bg-amber-400/5 px-2 py-1.5 ring-1 ring-amber-400/10">
           <MessageSquare className="mt-0.5 h-3 w-3 shrink-0 text-amber-400" />
           <p className="min-w-0 flex-1 text-[11px] text-amber-300/80 truncate">
-            {truncate(event.question ?? event.content ?? "Awaiting input", 100)}
+            {truncate(event.question ?? event.content ?? t("agentDetail.awaitingInput"), 100)}
           </p>
         </div>
       );
