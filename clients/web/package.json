@@ -12,7 +12,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --import tsx --test \"src/**/*.test.ts\" \"src/**/*.test.tsx\"",
+    "test": "node --import tsx --import ./test-setup.ts --test \"src/**/*.test.ts\" \"src/**/*.test.tsx\"",
 
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
@@ -87,7 +87,9 @@
   "optionalDependencies": {
     "lightningcss-linux-x64-gnu": "1.32.0",
     "lightningcss-linux-arm64-gnu": "1.32.0",
+    "lightningcss-darwin-arm64": "1.32.0",
     "@tailwindcss/oxide-linux-x64-gnu": "4.3.0",
-    "@tailwindcss/oxide-linux-arm64-gnu": "4.3.0"
+    "@tailwindcss/oxide-linux-arm64-gnu": "4.3.0",
+    "@tailwindcss/oxide-darwin-arm64": "4.3.0"
   }
 }
