@@ -46,3 +46,20 @@ model Engagement {
   @@index([userId])
   @@index([status])
 }
+
+// ── Operator-editable runtime settings ───────────────────────────────
+// Single-row-per-key store for the settings the dashboard exposes on its
+// Settings page (model policy, language, LLM timeouts, display endpoints).
+// Values are stored as strings so the table stays schema-free as knobs are
+// added — validation and defaults live in `src/lib/system-settings.ts`, and the
+// effect boundary of each field (next terminal session / next page load /
+// stored-only) is documented in `docs/web-dashboard.md`.
+//
+// Deployment-level configuration (ports, database URL, auth bootstrap) is NOT
+// stored here: it is injected by the launcher/compose at container start and is
+// surfaced read-only in the settings API.
+model SystemSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}

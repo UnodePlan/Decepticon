@@ -920,8 +920,8 @@ router_settings:
   # rejection that survives ``additional_drop_params``), LiteLLM picks
   # the next entry in the same chain rather than dragging in an
   # unrelated provider — the cross-provider fallback is the agent's
-  # ``ModelFallbackMiddleware`` job and is built dynamically from the
-  # user's Credentials inventory.
+  # MODEL_FALLBACK slot job and is built dynamically from the user's
+  # Credentials inventory (skipped when the run pinned a model override).
   #
   # Issue #107 root cause: the previous fallbacks block only covered
   # ``auth/...`` (OAuth subscription path) so a user running on
@@ -980,7 +980,7 @@ router_settings:
     - {"openai/mimo-rl": ["openai/mimo-7b"]}
     # OpenAI-compatible gateways (oh-my-pi parity) — HIGH → MID → LOW
     # within each gateway so a primary failure degrades on the same key
-    # before ModelFallbackMiddleware crosses to another provider.
+    # before the MODEL_FALLBACK chain crosses to another provider.
     - {"opencode/claude-opus-4-6": ["opencode/gpt-5.4"]}
     - {"opencode/gpt-5.4": ["opencode/glm-5-free"]}
     - {"vercel/anthropic/claude-opus-4.6": ["vercel/anthropic/claude-sonnet-4.6"]}
@@ -1011,4 +1011,11 @@ router_settings:
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
   database_url: os.environ/DATABASE_URL
-  store_model_in_db: false
+  # Required by the dashboard's custom LLM channel (Settings → LLM channel):
+  # `/model/new`, PATCH `/model/{id}/update` and `/model/delete` all reject the
+  # request with 400 unless models are DB-stored, and `_update_config_from_db`
+  # merges the DB rows back into the router on boot — which is what makes a
+  # registered channel survive a `docker compose restart litellm`.
+  # `litellm_dynamic_config.write_dynamic_config` deep-copies the parsed YAML
+  # and only rewrites `model_list`, so this survives dynamic-config generation.
+  store_model_in_db: true
