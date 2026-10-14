@@ -59,7 +59,7 @@ The four bridges, in decreasing blast radius:
 | **Neo4j dual-homing** | Cypher / APOC procedures | sandbox → mgmt plane RCE if APOC procedures are unrestricted |
 | **LiteLLM** | OAuth files + provider API keys | full LLM-provider compromise; engagement spend; cross-customer cred theft |
 | **Plugin entry-points** | Arbitrary Python on `import decepticon` | `pip install` of one malicious bundle → agent-startup RCE |
-| **Web dashboard** | OPPLAN edits, operator overrides, engagement state | full agent control if web is exposed without auth (PR #338) |
+| **Web dashboard** | OPPLAN edits, operator overrides, engagement state | full agent control if web is exposed without auth — now guarded by administrator sign-in, see the Web dashboard STRIDE walk |
 
 ## STRIDE walk
 
@@ -115,8 +115,8 @@ Per-asset analysis.
 
 | Threat | Vector | Mitigation | Status |
 |--------|--------|-----------|--------|
-| **Spoofing** | No auth on non-localhost deploys | PR #338 (open) adds password / bind-restriction | Open |
-| **Tampering** | OPPLAN edits via API | API requires `requireAuth()` (currently no-op in OSS) | Partial |
+| **Spoofing** | No auth on non-localhost deploys | Administrator sign-in (`DECEPTICON_ADMIN_PASSWORD_HASH` + HMAC-signed session cookie, enforced by `clients/web/src/proxy.ts`); compose still binds the dashboard to `127.0.0.1` | Done |
+| **Tampering** | OPPLAN edits via API | API requires `requireAuth()`; unauthenticated requests are rejected with `401` before the handler runs | Done |
 | **Information disclosure** | `engagements/[id]/graph` route ignored `[id]`, returned full graph | Prisma ownership + per-engagement scoped Cypher | Done |
 | **Information disclosure** | `engagements/[id]/graph` fell back to public Neo4j password | Refuses to query with `decepticon-graph` | Done |
 | **Information disclosure** | Health route hardcoded `LITELLM_API_KEY = "sk-decepticon-master"` | Removed; refuses without explicit env | Done |

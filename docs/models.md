@@ -16,7 +16,7 @@ Three orthogonal axes:
 | **AuthMethod** | API: `anthropic_api` / `openai_api` / `google_api` / `minimax_api` / `deepseek_api` / `xai_api` / `mistral_api` / `openrouter_api` / `nvidia_api`<br/>OAuth: `anthropic_oauth` / `openai_oauth` / `google_oauth` / `copilot_oauth` / `grok_oauth` / `perplexity_oauth`<br/>Local: `ollama_local` | Your credentials inventory |
 | **Profile** | `eco` / `max` / `test`                                                                                 | `DECEPTICON_MODEL_PROFILE` |
 
-For each agent, Decepticon resolves a tier (from the profile) and walks your AuthMethod priority list, emitting the model identifier that method provides at that tier. The first hit is the primary; **every remaining hit is queued as a fallback in priority order**. langchain's `ModelFallbackMiddleware` walks the queue on primary failure, trying each method in turn until one succeeds.
+For each agent, Decepticon resolves a tier (from the profile) and walks your AuthMethod priority list, emitting the model identifier that method provides at that tier. The first hit is the primary; **every remaining hit is queued as a fallback in priority order**. `OverrideRespectingModelFallbackMiddleware` walks the queue on primary failure, trying each method in turn until one succeeds — unless the run pinned a model override, in which case the chain is skipped (see [Failover behavior](#failover-behavior)).
 
 ### Tier × AuthMethod matrix
 
@@ -299,9 +299,11 @@ The Recon/Scanner/Soundwave roles fail to initialize. Add a second AuthMethod (e
 
 ## Failover behavior
 
-`ModelFallbackMiddleware` (from `langchain.agents.middleware`) watches every LLM call. On primary failure (provider outage, 429 rate limit, context overflow, network error), it transparently retries each queued fallback in order until one succeeds. Agents see no interruption — same conversation history, same tool call.
+`OverrideRespectingModelFallbackMiddleware` (in the `model-fallback` slot; a subclass of langchain's `ModelFallbackMiddleware`) watches every LLM call. On primary failure (provider outage, 429 rate limit, context overflow, network error), it transparently retries each queued fallback in order until one succeeds. Agents see no interruption — same conversation history, same tool call.
 
 The middleware receives the full chain `[primary, *fallbacks]` from `LLMFactory.get_fallback_models(role)`. If the user has all five AuthMethods configured, that's a five-deep chain; with a single credential it's primary-only and the middleware short-circuits. The chain length scales with credentials inventory — no upper cap, no silent truncation. Only when every method fails does the agent surface the error.
+
+**Exception — an explicit run override disables failover.** When the run pins a model (`/model` in the CLI, a per-role `model_overrides` entry, or a saved custom LLM channel), the chain is skipped and the provider's own error propagates. The override is your explicit provider choice; answering from a vendor you did not select — with your proxy master key, on a deployment that wired exactly one channel — would mask the real outage. Fix the channel or clear the override to get failover back.
 
 ---
 

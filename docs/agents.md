@@ -94,7 +94,7 @@ Bash-executing agents and the orchestrator additionally get:
 |------------|------|---------|
 | `EngagementContextMiddleware` | `engagement-context` | Injects engagement metadata (slug, workspace) and per-challenge state (target URL, tags, flag format, mission brief) into every model call. Carries RoE scope into tool calls — it is **safety-critical**. |
 | `SandboxNotificationMiddleware` | `sandbox-notification` | Tracks background-job completion and emits the CLI's `Background command` event. Bash agents only. |
-| `HITLApprovalMiddleware` | `hitl-approval` | Operator-approval gate for high-impact actions (credential dumping, destructive ops). **Opt-in** — skipped unless `DECEPTICON_HITL__ENABLED` is set to a truthy value (off by default so engagements don't freeze waiting on a human). |
+| `HITLApprovalMiddleware` | `hitl-approval` | Operator-approval gate for high-impact actions (credential dumping, destructive ops). **Off by default** — the middleware is always in the stack and gates itself per call: `DECEPTICON_HITL__ENABLED` (truthy) turns it on for the deployment, and a run may additionally turn it on with `hitl_enabled` in its run input. A run can never turn a deployment-enabled gate off. |
 
 ### Framework middleware
 
@@ -104,8 +104,8 @@ Bash-executing agents and the orchestrator additionally get:
 | `FilesystemMiddleware` | `filesystem` | Provides `read_file`, `write_file`, `edit_file`, `ls`, `glob`, `grep` tools backed by the sandbox filesystem. Execute is intentionally stripped — agents use the dedicated `bash` tool for command execution. |
 | `SubAgentMiddleware` | `subagent` | Allows orchestrators (Decepticon, Vulnresearch) to delegate objectives to specialist sub-agents via the `task()` tool. |
 | `OPPLANMiddleware` | `opplan` | Injects the current OPPLAN progress table into every LLM call and provides CRUD tools for objective management. |
-| `ModelOverrideMiddleware` | `model-override` | Per-objective model selection. Orchestrator only. |
-| `ModelFallbackMiddleware` | `model-fallback` | Switches to a fallback model on provider outage, rate limit, or context overflow. Conditional — skipped when no fallback chain is configured. |
+| `ModelOverrideMiddleware` | `model-override` | Re-binds the model for the wrapped call from the run's `model_override` / `model_overrides` (CLI `/model`, a SaaS per-role map, a saved custom channel), and applies the run's LLM knobs (`reasoning_effort`, `llm_max_output_tokens`, `llm_disable_streaming`). In every agent's stack, not just the orchestrator. An override that cannot be bound raises `ModelOverrideUnavailableError` rather than running on the baseline. |
+| `OverrideRespectingModelFallbackMiddleware` | `model-fallback` | Switches to a fallback model on provider outage, rate limit, or context overflow — except while the run pins a model override (`/model`, per-role map, saved channel), where the provider's own error surfaces instead. Conditional — skipped when no fallback chain is configured. |
 | `SummarizationMiddleware` | `summarization` | Auto-compacts conversation history when the context window approaches capacity. |
 | `AnthropicPromptCachingMiddleware` | `prompt-caching` | Caches static system prompt content for Anthropic models to reduce token costs. Silently no-ops on non-Anthropic providers. |
 | `PatchToolCallsMiddleware` | `patch-tool-calls` | Sanitizes and normalizes tool call formats for compatibility across model providers (e.g. repairs dangling tool calls). |
@@ -116,7 +116,7 @@ Bash-executing agents and the orchestrator additionally get:
 
 ### Stack per Agent Role
 
-Each diagram lists the slots a role instantiates, in `MiddlewareSlot` enum order (the order they wrap each call). `HITLApproval` appears in the bash-agent and orchestrator stacks but is opt-in — skipped at runtime unless `DECEPTICON_HITL__ENABLED` is truthy.
+Each diagram lists the slots a role instantiates, in `MiddlewareSlot` enum order (the order they wrap each call). `HITLApproval` appears in the bash-agent and orchestrator stacks and is off by default — the middleware is always built and short-circuits per call unless `DECEPTICON_HITL__ENABLED` is truthy or the run sets `hitl_enabled`.
 
 **Decepticon (Orchestrator)** — full stack with engagement context, sub-agent dispatch, and per-objective model override. No `SandboxNotification`.
 

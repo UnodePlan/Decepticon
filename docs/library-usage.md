@@ -60,7 +60,7 @@ Available kwargs on every factory:
 |-------|---------|---------------------|
 | `backend` | `make_agent_backend(build_sandbox_backend())` | injected `BackendProtocol` |
 | `llm` | `LLMFactory().get_model(role)` | injected chat model |
-| `fallback_models` | `LLMFactory().get_fallback_models(role)` | passed to `ModelFallbackMiddleware` |
+| `fallback_models` | `LLMFactory().get_fallback_models(role)` | passed to the `model-fallback` slot (`OverrideRespectingModelFallbackMiddleware`; skipped on a failure that already has an explicit model override) |
 | `sandbox` | `build_sandbox_backend()` (bash agents only) | injected `HTTPSandbox` |
 | `subagents` | `load_subagents_for_parent(role)` (orchestrators only) | full subagent list |
 | `tools` | per-role registry | **full tool list** — replaces baseline |
@@ -122,6 +122,13 @@ agent = create_agent(
     name="vendor-recon-v2",
 )
 ```
+
+> Composing by hand opts out of the override guard: Decepticon's
+> `model-fallback` slot installs
+> `OverrideRespectingModelFallbackMiddleware` (subclass of langchain's), which
+> skips the chain while a run pinned a model via `/model`, a per-role
+> `model_overrides` map, or a saved channel. `ModelFallbackMiddleware` here
+> will instead retry a pinned override's failure on another provider.
 
 This is the canonical path for commercial / research integrators who want
 to ship their own service on top of Decepticon's agent code.

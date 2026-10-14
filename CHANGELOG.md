@@ -12,6 +12,277 @@ comparison link. Keep proposed and unmerged changes out of released sections.
 
 ## [Unreleased]
 
+### Added
+
+- Administrator sign-in for the web dashboard. Credentials come from
+  `DECEPTICON_ADMIN_USERNAME` plus `DECEPTICON_ADMIN_PASSWORD_HASH`
+  (scrypt or PBKDF2), sessions are HMAC-signed `HttpOnly` cookies keyed by
+  `DECEPTICON_SESSION_SECRET`, and an install that has none of them gets a
+  generated password at first `decepticon start`. Page requests without a
+  session redirect to `/login?next=…`; API requests answer `401`. Failed
+  attempts are rate-limited.
+- English/Chinese switching for the dashboard, stored in the
+  `decepticon_lang` cookie with `DECEPTICON_LANGUAGE` as the deployment
+  default. URLs are unchanged.
+- Editable runtime settings for the dashboard, stored in a new PostgreSQL
+  `SystemSetting` table (`GET`/`PUT /api/settings`). Global and per-agent
+  model overrides — and the run-scoped LLM/guardrail knobs in the next entry —
+  reach an agent run on the next terminal session; the default language and
+  the Web endpoint rows apply on the next page load; the model profile and the
+  LLM timeout/retry rows are persisted and reported but are not yet read by the
+  agent stack, and the settings page labels them accordingly. Values the agent
+  process owns (telemetry mode, auth priority, embedding model, workspace path)
+  and the container configuration (ports, `DATABASE_URL`, auth bootstrap) are
+  reported read-only and rejected by `PUT`. A write-only LiteLLM credential
+  override (used by the dashboard's model probe) is never echoed back.
+  `POST /api/settings/test-model` checks a model id against LiteLLM before
+  it is saved.
+- Custom LLM channels on the same settings page: give an OpenAI-compatible
+  base URL plus an optional API key, fetch the models that endpoint
+  advertises (`POST /api/settings/llm-channel/models`), pick one and save
+  (`PUT /api/settings/llm-channel`). Saving registers the model with LiteLLM
+  under an `openai/decepticon-custom-<hash>` alias and points the global model
+  override at it, so new terminal sessions use the operator's endpoint; role
+  overrides still win. The key is stored server-side, only its existence is
+  returned, and it is never reused for a different base URL. A save validates
+  the endpoint twice — the model listing for the chosen model, and one minimal
+  request on the chosen protocol's own route — so a channel that is reachable
+  but does not serve the selected protocol is refused with a `fields.protocol`
+  error instead of being registered and adopted. Removing the
+  channel clears the override only while it still points at that alias.
+- Run-scoped LLM and guardrail knobs, editable on the three settings screens and
+  consumed by the agent instead of being stored only. Reasoning effort, a
+  maximum-output ceiling, streaming off, extra provider request headers, the
+  engagement and per-agent USD caps with their soft-warn threshold, and the
+  human-approval (HITL) switch are read from the settings snapshot by the
+  terminal server, forwarded to a new PTY as `DECEPTICON_RUN_*` environment
+  variables, re-validated by the CLI and injected into the LangGraph run input,
+  where `ModelOverrideMiddleware`, `BudgetEnforcementMiddleware` and
+  `HITLApprovalMiddleware` apply them. They ride the first run of a session and
+  persist through the checkpoint, so they apply to the next terminal session —
+  an already-running terminal keeps the policy it started with, and a value
+  equal to the deployment default is not sent at all. Reasoning effort offers
+  six tiers — `none` sends nothing, and `low`/`medium`/`high`/`xhigh`/`max`
+  travel verbatim with no per-model remapping, so a model that does not
+  support the chosen tier reports it instead of silently running at another —
+  and it reaches only the model families whose provider routes accept the
+  parameter. Credential- and framing-sensitive header names (`Authorization`,
+  `Proxy-Authorization`, `Cookie`, `Set-Cookie`, `Host`, `Content-Length`) are
+  dropped at every hop, header values are never logged and never appear in a
+  Web response, and malformed values are rejected rather than stored. The HITL
+  switch can only raise the guard: a run cannot disable an approval gate the
+  deployment enabled.
+
+### Changed
+
+- The workspace path row is no longer editable: it is reported read-only
+  alongside the other values the agent process owns (telemetry mode, auth
+  priority, embedding model), and a `PUT` of it answers `400 { fields: {
+  workspacePath: "read-only field" } }`. Storing a value nothing reads — the
+  containers take `WORKSPACE_PATH` from their own environment — is how an
+  operator concludes a knob is broken; the page names the environment variable
+  that actually governs it. The model profile and LLM timeout/retry rows keep
+  their stored-but-not-applied badge for one more cycle.
+- Settings moved behind three separate sidebar entries — Models
+  (`/settings/models`), Runtime (`/settings/runtime`) and Status
+  (`/settings/status`) — with matching command-palette commands, so each
+  screen loads only its own cards. `/settings` stays reachable and the nav
+  only highlights the entry whose own route is open.
+- The dashboard fails closed when no credential is configured instead of
+  resolving every request to the local user. `DECEPTICON_AUTH_DISABLED=true`
+  restores the previous behaviour for development only.
+- The terminal WebSocket server validates the dashboard session cookie at
+  upgrade time, and calls its own API with `DECEPTICON_INTERNAL_API_TOKEN`.
+- `decepticon start` generates the dashboard session secret, the internal API
+  token and (when the operator has not chosen one) an administrator password at
+  first start, writing only the one-way hash to `.env` and printing the
+  password once.
+
+### Fixed
+
+- Stop treating the launcher's Ollama Cloud template key as a configured
+  provider. `decepticon onboard` writes
+  `OLLAMA_CLOUD_API_KEY=your-ollama-cloud-key-here` into `.env` before the
+  user has a credential; the credentials resolver counted any non-empty value
+  as an opt-in, so an install with no real key of any kind resolved to the
+  single-method chain `[ollama_cloud]` and every agent — orchestrator,
+  specialists, Soundwave — was constructed against `ollama_cloud/llama3.2`
+  with an invalid Bearer token. A key that is a template placeholder, a
+  placeholder token, or shorter than a real credential now counts as "not
+  set" in both `decepticon.llm.factory._ollama_cloud_configured` and
+  `decepticon_core.types.llm._resolve_ollama_cloud_model`, so the resolver
+  falls through to the user's real inventory (their custom LiteLLM channel)
+  exactly as it does when the key is absent. `OLLAMA_CLOUD_API_BASE` and
+  `OLLAMA_CLOUD_MODEL` remain explicit opt-ins, and a real key alone still
+  opts in, so the onboard path that pastes only a key keeps working.
+- Refuse a model override that cannot be bound instead of running the call on
+  the baseline. `ModelOverrideMiddleware` caught every exception from
+  `_build_proxied_llm` and returned the original request, so a run that asked
+  for another model (CLI `/model`, a per-role `model_overrides` map, or a saved
+  custom channel) silently executed on whatever the agent was constructed with
+  — the same `ollama_cloud/llama3.2` baseline above, which is why a real run
+  kept using `ollama_cloud/llama3.2` despite `model_override` being set. It now
+  raises `ModelOverrideUnavailableError` naming the override, the failure type,
+  the redacted cause, and the baseline model it refuses to fall back to. The
+  middleware sits outside `ModelFallbackMiddleware`, so the refusal propagates
+  rather than being converted into a fallback attempt. Model ids that are
+  syntactically valid but unknown still bind and fail at the provider with the
+  existing actionable 404, so experimenting with new ids is unaffected.
+- Stop retrying a failing model override on another provider. The fallback
+  chain (`anthropic/…` → `openai/…` → local) exists for the vetted baseline,
+  but `ModelFallbackMiddleware` walked it after ANY model error — so a run
+  pinned to the operator's custom LiteLLM channel whose endpoint rejected the
+  call was silently answered by an unrelated vendor, using the operator's own
+  proxy master key, on a deployment that wired exactly one channel. The
+  MODEL_FALLBACK slot now installs
+  `OverrideRespectingModelFallbackMiddleware`, which skips the chain while an
+  override is pinned (`/model`, a per-role `model_overrides` entry, or a saved
+  channel) and lets the provider's own actionable error surface; with no
+  override pinned the baseline fallback behaviour is byte-for-byte unchanged.
+  The guard reads the override through the same reader and `role` the override
+  middleware uses, so the per-role map and the global override behave
+  identically and the two cannot disagree.
+
+- Restore the execute bit node-pty's macOS `spawn-helper` is published without.
+  The stable 1.1.0 tarball carries `prebuilds/darwin-*/spawn-helper` as mode
+  `0644`, so `posix_spawnp` refused to exec it and every PTY died with node-pty's
+  bare `posix_spawnp failed.` — no path, no errno, no remedy — which reads as a
+  broken terminal rather than a misinstalled dependency. The terminal server now
+  probes the helper it will actually exec (`X_OK`, resolved from its own
+  `node-pty`) and repairs the mode before listening, so a tree left at `0644` by
+  a package manager that skips install scripts, or copied between machines, works
+  without a manual `chmod`. When the tree is read-only the startup line names the
+  exact path and the `chmod`, and the PTY error the operator sees carries the same
+  hint instead of guessing.
+- Start the terminal PTY's CLI with tsx's default entry (`node --import tsx`)
+  instead of the ESM-only `tsx/esm`. tsx 4.22.0's ESM entry installs just the
+  module hooks, and its sync load hook rewrote every JSON module to ESM source —
+  including the ones a CommonJS `require()` still parses as JSON. Ink requires
+  `cli-boxes/boxes.json`, so on Node 24.11/25.1 each PTY died with
+  `Unexpected token 'v', "var single"... is not valid JSON` and never painted a
+  frame, while Node 22 happened to survive. The default entry installs the CJS
+  hook too, so the terminal works on every supported Node without pinning a
+  runtime; `terminal-startup-lifecycle.test.ts` now asserts the specifier and
+  probes a real `require('./x.json')` under it.
+- Strip the CI markers (`CI`, `CONTINUOUS_INTEGRATION`) the server's own shell
+  exports before handing the environment to a terminal PTY. A dashboard started
+  from CI/CD inherited `CI=true` into every PTY, which trips Ink's `is-in-ci`
+  probe in the CLI and makes it "print each frame instead of repainting": the
+  banner is written once and never erased while every later repaint begins with
+  a fullscreen `\x1b[2J\x1b[3J\x1b[H` clear and draws the prompt below the logo,
+  so the operator sees the banner "flash" and their typing appear off-screen. A
+  PTY this server spawns is driven over a WebSocket by the browser terminal,
+  never by a CI runner, so the markers are shell-only. `is-in-ci` matches on key
+  presence, so the keys are deleted rather than blanked; `NO_COLOR` is left as
+  inherited because it alters neither the prompt nor the repaint cadence. A/B on
+  the real node-pty path at 120x30: 1313 startup bytes with no prompt versus 1752
+  with prompt and status, and 2 versus 535 bytes echoed while typing, with no
+  extra clears at 42x31 afterwards.
+- Re-check the session map after the terminal startup's thread and settings
+  reads, so two connections racing to open one engagement key spawn exactly one
+  PTY. Startup awaits the scope read, a thread round-trip and the saved settings
+  before it spawns, and the session is registered only at the end, so a doubled
+  `init()` (React StrictMode), a reconnect racing the first connect, or a second
+  tab all reached the spawn and each registered its own session under the same
+  key — the earlier PTY was orphaned in the map's place, never closed, never
+  wired to a socket, and each later reattach landed on a different process.
+  The winner is now kept and the loser's socket is attached to it, which is the
+  same path a reattach takes; `terminal-startup-lifecycle.test.ts` pins one PTY
+  per key, one spawn, the loser wired to the live session and the earlier socket
+  closed with the app-range 4001. Existing reattach semantics, including the
+  orphan TTL, are unchanged — the reattach block was extracted to `attachWs`
+  and is used by both paths.
+- Keep exactly one terminal WebSocket per mounted terminal, and ignore every
+  event from a socket that is no longer current. `connectWs` used to close the
+  previous socket and then immediately store its replacement, so the superseded
+  socket's `close` (1006 while it was still hand-shaking, 1005 for the bare
+  `close()`) was indistinguishable from a dropped link and scheduled a
+  reconnect for the **live** connection. The replacement's `open` then reset the
+  retry counter, so the 15-attempt cap never tripped and the client dialled a
+  fresh socket once a second; the server logged a disconnect/reattach pair per
+  cycle on the same pid while the client re-ran `term.reset()` plus the replayed
+  scrollback, which is the banner flashing once a second with no prompt. A
+  remount that resumes its suspended `xterm` import after a teardown is now
+  rejected by generation instead of allocating a second terminal, and a retry
+  that lands cancels the timer that asked for it. Deliberate disconnects still
+  reconnect with the same backoff, a reattach still replays scrollback, and the
+  heartbeat is unchanged. `src/lib/terminal-reconnect.test.ts` pins the visible
+  behaviour — one socket per remount, stale frames and close events never
+  reaching the live terminal, one input listener across reconnects with each
+  keystroke sent once, a responsive socket left alone by the heartbeat, and an
+  unmount that schedules no retry.
+- Stop the live agent graph from animating (and simulating) when nothing is
+  happening on screen. Three costs compounded: every node's "glow" was an
+  animated `filter: drop-shadow()` (关键原因：filter 动画每帧都要对整块元素重跑一次
+  Gaussian 模糊，节点越多开销线性放大), every active edge's traffic dots ran
+  `blur()` + `drop-shadow()` ×2/×3 while being re-rastered each frame by their
+  SMIL motion (关键原因：过滤后的图层跟着 `<animateMotion>` 动，等于每个点每帧重新
+  做一次模糊), and `useForceSimulation` kept stepping until alpha decayed below
+  its minimum — roughly 340 ticks at the default decay — with each tick
+  re-rendering the whole SVG, including while the tab was hidden (关键原因：
+  hidden tab 仍拿得到动画帧，d3-force 于是继续整图重绘). Nodes now show activity
+  with a dedicated ring `<circle>` whose keyframes animate only `transform`/
+  `opacity`, edge dots carry no filter (the glow is their own fill/opacity),
+  the React Flow attack graph no longer puts `animated: true` on every edge of
+  a static Neo4j picture, and the canvas gates all of it — plus the physics
+  loop — on an active run *and* `document.visibilityState`, publishing the
+  frozen layout exactly once instead of ticking behind a static image. Node
+  objects are also reconciled across streamed events by identity, so one event
+  re-renders only the nodes it changed. Measured by rendering the real node/edge
+  components (49 nodes, 48 active edges, 288 SMIL dots) in a headless Chromium
+  fixture and reading CDP `Performance.getMetrics` for 3 s: 4.9 → 58.1 fps and
+  a worst frame gap of 268 ms → 44 ms; removing only the edge-dot filters
+  accounted for 5.5 → 51.3 fps of that. These are page-level frame/task
+  numbers, not hardware GPU utilisation.
+- Stop the live agent graph from painting overlapping nodes and labels on its
+  first frame. Gating the physics loop on an active run *and* a visible
+  document was right, but it left a graph that is idle, hidden or finished
+  with *no* tick at all — and the layout `useAgentActivity` seeds is a hard
+  overlap: 17 agents on a 160px ring whose 24px discs clear each other while
+  their name labels run through the next node, plus a 60px satellite ring per
+  agent that drops its tool nodes on top of the agent. Measured on the real
+  topology (97 painted nodes): min circle clearance −30.6px, label/circle
+  overlaps everywhere. Such a graph therefore painted the raw seed layout and
+  stayed that way, which is the reported 大量节点与标签重叠. Every (re)build now
+  runs a bounded, synchronous settle — `sim.tick()` in a loop, no timer and no
+  animation frame — until no two painted footprints (circle *and* label box)
+  are closer than 8px, capped at 240 ticks (97 nodes: 81 ticks / 40ms; 163
+  nodes with marketplace agents: 148 ticks / 114ms; a mid-run re-settle after a
+  newly seen tool name: 66–185 ticks / 25–64ms). The layout is published once, so
+  the first paint is already spread out and `running: false` still costs zero
+  frames. The live loop also no longer restarts at
+  d3's default alpha 1: that re-flung a settled layout (worst painted footprint
+  gap −19.3px at 97 nodes and −52.6px at 187 nodes over the transient) and
+  replayed on every streamed event, so it now restarts at 0.04 and holds the
+  separation at both sizes (+11.2px / +4.5px worst) while keeping the ambient
+  drift and stopping itself after ~183 frames. Drag pins, resize, visibility and
+  new topology are unchanged. `clients/web/src/lib/graph/canvas-geometry.test.tsx`
+  mounts the real canvas with the real agent list and asserts painted
+  circle/label clearance on the parsed SVG; both it and the new
+  `force-simulation.test.tsx` cases fail against the pre-fix hook.
+- Batch the embedded terminal's output instead of writing every WebSocket
+  message straight into xterm. An Ink repaint arrives as many small fragments,
+  and each one made xterm repeat its write/render bookkeeping — measured in a
+  headless Chromium fixture mirroring the live pane (180 frames × 8 fragments
+  per frame, three mounted terminals like the plan/red/blue mode switcher):
+  1440 `write()` calls and 8142 DOM mutations on the visible pane became 180
+  calls / 1409 mutations, and the two hidden panes dropped from 1440 × 2 calls
+  to 180 × 2, with an identical terminal buffer digest (same bytes, same
+  order) in both modes. Fragments are joined in arrival order and flushed on
+  the next animation frame, with a 256 KB cap and a 50 ms deadline so a
+  throttled background tab cannot hold output; a clean close, the retry banner
+  and a `reattached` reset flush or drop the pending batch in the right order
+  so no output is lost or replayed over a reset. The batching lives in
+  `clients/web/src/lib/terminal-output-coalescer.ts`.
+- Stop the terminal from squeezing the PTY to the 2-column minimum while the
+  terminal drawer animates shut. The resize observer only tested
+  `clientWidth === 0`, but the pane keeps 8px padding, so collapse left ~16px
+  of *usable* width for several frames; fitting there resized the PTY to
+  `2×30` and made the CLI reflow its whole frame twice (measured `47×30 → 2×30
+  → 46×30` and 438 buffer lines of reflowed history, versus a single `47×30`
+  and 30 lines now). The fit now requires a usable terminal surface rect and
+  the resize message is sent only when the grid actually changed.
+
 ## [1.4.1] — 2026-10-14
 
 ### Fixed

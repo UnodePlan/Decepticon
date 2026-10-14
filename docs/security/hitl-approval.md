@@ -12,24 +12,29 @@ operations — need a human stop-the-line gate. `HITLApprovalMiddleware`
 intercepts tool calls that match a declarative policy, pauses the run,
 and applies the operator's decision.
 
-It is **opt-in and off by default**: the slot factory returns nothing
-unless `DECEPTICON_HITL__ENABLED` is truthy, so default engagements never
-freeze waiting on a human.
+It is **off by default**: the middleware is always in the stack but gates
+itself per call, so a default engagement never freezes waiting on a human
+unless `DECEPTICON_HITL__ENABLED` is truthy or the run sets `hitl_enabled`.
 
 Source of record:
 [`middleware/hitl.py`](../../packages/decepticon/decepticon/middleware/hitl.py)
 (middleware, policy, transports) and
 [`agents/middleware_slots.py`](../../packages/decepticon/decepticon/agents/middleware_slots.py)
-(the opt-in slot factory).
+(the slot factory).
 
 ## Enabling it
 
-`DECEPTICON_HITL__ENABLED` controls the slot. Any value other than the
-falsy set — `""`, `0`, `false`, `no`, `off` (case-insensitive) — enables
-the gate. When enabled, the factory builds the middleware with
-`DEFAULT_HIGH_IMPACT_POLICY`, `transport=None`, the engagement id from
-`DECEPTICON_ENGAGEMENT_ID` (default `default-engagement`), and the
-agent's role as `agent_name`.
+`DECEPTICON_HITL__ENABLED` controls the deployment default. The slot is
+always built; the middleware gates itself per call and short-circuits both
+tool-call paths before policy matching when the gate is off, so a disabled
+gate costs nothing. Any truthy value — `1`, `true`, `yes`, `on`
+(case-insensitive, surrounding whitespace ignored) — turns it on; anything
+else leaves it off. A run may additionally turn the gate on by setting
+`hitl_enabled: true` in its run input (a declared state channel) — and never
+off, so a run cannot clear an approval the deployment mandated. When enabled,
+the factory builds the middleware with `DEFAULT_HIGH_IMPACT_POLICY`,
+`transport=None`, the engagement id from `DECEPTICON_ENGAGEMENT_ID` (default
+`default-engagement`), and the agent's role as `agent_name`.
 
 With `transport=None`, the middleware resolves a transport **per
 request** from `state["workspace_path"]` (falling back to

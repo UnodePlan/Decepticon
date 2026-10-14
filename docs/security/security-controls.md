@@ -27,8 +27,8 @@ and
 | **RoE egress guardrail** (network) | On by default for `enforce` mode; authoritative scope boundary. | Automatic when `machine_enforcement.mode=enforce` (compiles → sandbox nftables + DNS allowlist); opt out with `DECEPTICON_EGRESS_DISABLE=1`. | Under `enforce`, an out-of-scope connect-by-IP from the sandbox is dropped at the network edge even when the command parser is bypassed (live-verified: `ping 8.8.8.8` blocked, in-scope + management reachable). |
 | **Untrusted-output quarantine** (`untrusted-output`) | Always on, every role. Safety-critical. | None — in `_BASE_SLOTS`; only a plugin with `DECEPTICON_ALLOW_SAFETY_OVERRIDES=1` can replace it. | Read a hostile banner; tool output is wrapped in the `<UNTRUSTED_TOOL_OUTPUT>` envelope. See [prompt-injection-defense](./prompt-injection-defense.md). |
 | **Prompt-injection shield** (`prompt-injection-shield`) | Always on, every role. Safety-critical. | None — in `_BASE_SLOTS`; same override gate as above. | Deny-listed payloads in tool output are wrapped before reaching the next model call. |
-| **HITL approval** (`hitl-approval`) | Off by default — opt-in. Safety-critical when enabled. | `DECEPTICON_HITL__ENABLED` (truthy enables) | Enable it, trigger a `T1003` objective or a `sliver_*` tool; the run pauses for an approval written to `<workspace>/approvals/requests.jsonl`. See [hitl-approval](./hitl-approval.md). |
-| **Budget enforcement** (`budget`) | No-op unless a cap is set. In `_BASE_SLOTS`. | `DECEPTICON_BUDGET__ENGAGEMENT_USD` / `DECEPTICON_BUDGET__PER_AGENT_USD` (a positive cap enables it) | Set a low cap; expect a `budget_warning` stream event at the soft threshold and `BudgetExceeded` (run terminates) at 100%. |
+| **HITL approval** (`hitl-approval`) | Off by default — opt-in. Safety-critical when enabled. | `DECEPTICON_HITL__ENABLED` (truthy enables) for the deployment; a run may also enable it with `hitl_enabled` in its run input (never disable it). | Enable it, trigger a `T1003` objective or a `sliver_*` tool; the run pauses for an approval written to `<workspace>/approvals/requests.jsonl`. See [hitl-approval](./hitl-approval.md). |
+| **Budget enforcement** (`budget`) | No-op unless a cap is set. In `_BASE_SLOTS`. | `DECEPTICON_BUDGET__ENGAGEMENT_USD` / `DECEPTICON_BUDGET__PER_AGENT_USD` (a positive cap enables it); a run may override both caps and the soft-warn threshold with `budget_engagement_usd` / `budget_per_agent_usd` / `budget_soft_warn_at_pct` (a fraction in 0..1) in its run input | Set a low cap; expect a `budget_warning` stream event at the soft threshold and `BudgetExceeded` (run terminates) at 100%. |
 
 ### What "safety-critical" means
 
@@ -56,11 +56,14 @@ read in `budget.py` and the audit sink.
 | `DECEPTICON_BUDGET__POLL_SECONDS` | `5.0` | How often LiteLLM spend is re-queried; spend is cached for this interval. |
 
 The middleware is a no-op unless `ENGAGEMENT_USD` or `PER_AGENT_USD` is
-positive. It blocks LLM calls only, never tool calls — an in-flight tool
-round-trip and a final synthesis message can still complete before the
-next inference fails. Spend comes from LiteLLM's `spend_logs` table
-(requires `DATABASE_URL`); a provider error is treated as "no data this
-turn, don't enforce" rather than a hard stop.
+positive. The three spend knobs can be overridden for a single run through
+its run input (`budget_engagement_usd`, `budget_per_agent_usd`,
+`budget_soft_warn_at_pct`) — a positive cap may only be raised, never
+removed, and an absent key changes nothing. It blocks LLM calls only, never
+tool calls — an in-flight tool round-trip and a final synthesis message can
+still complete before the next inference fails. Spend comes from LiteLLM's
+`spend_logs` table (requires `DATABASE_URL`); a provider error is treated as
+"no data this turn, don't enforce" rather than a hard stop.
 
 ### Audit ledger
 
@@ -76,7 +79,7 @@ verification.
 
 | Variable | Default | Effect |
 |----------|---------|--------|
-| `DECEPTICON_HITL__ENABLED` | unset (disabled) | Truthy enables the approval gate. Falsy spellings (`""`, `0`, `false`, `no`, `off`) keep it off. |
+| `DECEPTICON_HITL__ENABLED` | unset (disabled) | Truthy enables the approval gate. Falsy spellings (`""`, `0`, `false`, `no`, `off`) keep it off; the slot is always built and gates itself, and a run may additionally enable it with `hitl_enabled` in its run input. |
 
 See [hitl-approval](./hitl-approval.md) for the policy and approval flow.
 
