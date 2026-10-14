@@ -9,6 +9,7 @@ import (
 	"charm.land/huh/v2"
 
 	"github.com/PurpleAILAB/Decepticon/clients/launcher/internal/config"
+	"github.com/PurpleAILAB/Decepticon/clients/launcher/internal/ui"
 )
 
 // TelemetryPolicyID identifies the one-time telemetry re-consent prompt.
@@ -35,6 +36,13 @@ var confirm = func(title, description, affirmative, negative string, defaultYes 
 
 // Registry is the ordered list of migrations applied at every start.
 // Append a Step here to ship a future config/policy migration.
+// DashboardCredentialID is the non-interactive step that gives an
+// already-onboarded install its dashboard sign-in material: the session
+// signing key, and (if the user has not chosen one) an administrator password
+// derived from a generated passphrase. A non-empty password-hash means the
+// user manages this themselves and nothing is touched.
+const DashboardCredentialID = "dashboard-auth"
+
 func Registry() []Step {
 	return []Step{
 		{
@@ -44,11 +52,84 @@ func Registry() []Step {
 			Apply:       applyEnvBackfill,
 		},
 		{
+			ID:          DashboardCredentialID,
+			Description: "Generate dashboard sign-in material when it is missing",
+			Interactive: false,
+			Apply:       applyDashboardCredentials,
+		},
+		{
 			ID:          TelemetryPolicyID,
 			Description: "Re-ask telemetry consent after the opt-out policy change",
 			Interactive: true,
 			Apply:       applyTelemetryReconsent,
 		},
+	}
+}
+
+// applyDashboardCredentials gives an install its dashboard sign-in material:
+// the session signing key, the in-container shared secret, and (if the user
+// has not chosen one) an administrator password derived from a generated
+// passphrase. A credential the user already configured — scrypt/pbkdf2 hash or
+// plaintext password — is left untouched: silently replacing it would lock the
+// operator out of a live session.
+func applyDashboardCredentials(c *Ctx) (string, error) {
+	values := map[string]string{}
+
+	if strings.TrimSpace(c.Env["DECEPTICON_SESSION_SECRET"]) == "" {
+		secret, err := config.NewSessionSecret()
+		if err != nil {
+			return "", err
+		}
+		values["DECEPTICON_SESSION_SECRET"] = secret
+	}
+
+	// Without this token the terminal server cannot persist a thread id: it
+	// holds no browser cookie, so its PATCH would answer 401.
+	if strings.TrimSpace(c.Env["DECEPTICON_INTERNAL_API_TOKEN"]) == "" {
+		token, err := config.NewInternalApiToken()
+		if err != nil {
+			return "", err
+		}
+		values["DECEPTICON_INTERNAL_API_TOKEN"] = token
+	}
+
+	managed := strings.TrimSpace(c.Env["DECEPTICON_ADMIN_PASSWORD_HASH"]) != "" ||
+		strings.TrimSpace(c.Env["DECEPTICON_ADMIN_PASSWORD"]) != ""
+	if managed || len(values) == 0 {
+		if err := config.SetEnvKeys(c.EnvPath, values); err != nil {
+			return "", err
+		}
+		applyToEnv(c.Env, values)
+		if managed && len(values) > 0 {
+			return "Generated the dashboard session/internal secrets; your configured administrator credential is unchanged.", nil
+		}
+		return "", nil
+	}
+
+	generated, err := config.NewAdminPasswordHash()
+	if err != nil {
+		return "", err
+	}
+	values["DECEPTICON_ADMIN_PASSWORD_HASH"] = generated.Hash
+	values["DECEPTICON_ADMIN_USERNAME"] = config.AdminUsername(c.Env)
+	if err := config.SetEnvKeys(c.EnvPath, values); err != nil {
+		return "", err
+	}
+	applyToEnv(c.Env, values)
+
+	// Printed exactly once: the stored hash is one-way, so this is the
+	// operator's only chance to record the password.
+	ui.Info("Web dashboard password (stored only as a hash — record it now):")
+	ui.Info(fmt.Sprintf("  %s  →  user %s  password %s",
+		config.EnvPath(), values["DECEPTICON_ADMIN_USERNAME"], generated.Password))
+	return "Generated a dashboard administrator password; see the line above.", nil
+}
+
+// applyToEnv mirrors written keys into the in-memory env so the rest of
+// `start` this run sees them without a reload.
+func applyToEnv(env, values map[string]string) {
+	for key, value := range values {
+		env[key] = value
 	}
 }
 

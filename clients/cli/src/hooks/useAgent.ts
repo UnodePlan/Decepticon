@@ -12,6 +12,16 @@
  * - interrupt(): Pause at checkpoint (Ctrl+C single press) — state preserved
  * - cancel(): Hard abort (Ctrl+C double press, or from paused) — state lost
  * - resume(): Continue from pause point with optional feedback
+ *
+ * Run input is assembled from two sources: the engagement metadata in
+ * `config.configurable`, and the saved run policy the terminal server forwarded
+ * into this process's environment (`commands/runOverrides.ts`) — the model
+ * override plus the run-scoped LLM/guardrail knobs (reasoning effort, output
+ * ceiling, streaming, budget caps, HITL). Because graph state
+ * channels are declared on the agent, the policy survives checkpointing: it is
+ * sent once on the kickoff run and only `model_override` is written back on
+ * resume/answer, where an explicit `/model` choice in this terminal outranks
+ * the saved value.
  */
 
 import { useState, useCallback, useRef, useEffect } from "react";
@@ -24,7 +34,7 @@ import {
   extractText,
   stripResultTags,
 } from "@decepticon/streaming";
-import { getModelOverride } from "../commands/modelOverride.js";
+import { getRunModelOverride, getRunOverrides } from "../commands/runOverrides.js";
 import { getAssistantOverride } from "../commands/assistantOverride.js";
 import { blueMonitorReady } from "../commands/blue.js";
 import { assertRedApproved } from "../commands/planMode.js";
@@ -802,10 +812,16 @@ export function useAgent({
         setStreamStats({ startTime: Date.now(), totalTokens: 0, promptTokens: 0, completionTokens: 0 });
 
         // Engagement metadata is hydrated from configurable; model selection
-        // uses a declared graph input channel so it survives checkpointing.
+        // and the run-scoped LLM/guardrail knobs use declared graph input
+        // channels so they survive checkpointing. `getRunOverrides` layers the
+        // dashboard's saved policy (forwarded into this PTY's environment by
+        // the terminal server) under the in-session `/model` choice, omits every
+        // field whose saved value is absent or is the deployment default, so a
+        // plain run payload stays byte-identical — and is spread FIRST so an
+        // explicit per-run argument on this call always outranks the policy.
         const input: Record<string, unknown> = {
+          ...getRunOverrides(),
           messages: [{ role: "user", content: message }],
-          model_override: getModelOverride(),
         };
 
         const configurable: Record<string, unknown> = {};
@@ -916,7 +932,7 @@ export function useAgent({
             threadIdRef.current!,
             threadAssistantRef.current,
             {
-              command: { resume: value, update: { model_override: getModelOverride() } },
+              command: { resume: value, update: { model_override: getRunModelOverride() } },
               ...STREAM_OPTIONS,
               onDisconnect: "continue",
               signal: abortController.signal,
@@ -978,7 +994,7 @@ export function useAgent({
               threadIdRef.current!,
               threadAssistantRef.current,
               {
-                command: { resume: value ?? true, update: { model_override: getModelOverride() } },
+                command: { resume: value ?? true, update: { model_override: getRunModelOverride() } },
                 ...STREAM_OPTIONS,
                 onDisconnect: "continue",
                 signal: abortController.signal,

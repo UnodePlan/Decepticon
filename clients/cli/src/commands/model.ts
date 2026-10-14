@@ -4,12 +4,14 @@
  * Usage:
  *   /model              List the active override + every supported model id
  *   /model <id>         Set the override (e.g. /model groq/llama-3.3-70b-versatile)
- *   /model clear        Drop the override and resume the credentials-priority chain
+ *   /model clear        Drop the in-session override; the dashboard's saved policy
+ *                       (if any) then applies, else the credentials-priority chain
  *
- * The override travels with each subsequent submit() through
- * config.configurable.model_override and is consumed by the agent's
- * ModelOverrideMiddleware on the server side. No restart, no rebuild —
- * just type the command and the next prompt routes to the new model.
+ * The override travels with each subsequent submit() as a declared run input
+ * field (`model_override`, via `getRunOverrides` in `commands/runOverrides.ts`)
+ * and is consumed by the agent's ModelOverrideMiddleware on the server side.
+ * No restart, no rebuild — just type the command and the next prompt routes to
+ * the new model.
  *
  */
 
@@ -203,7 +205,7 @@ const model: Command = {
       lines.push(
         current
           ? `Active override: ${current}`
-          : "No override active — using the credentials-priority chain from .env",
+          : "No in-session override — the saved dashboard policy, else the credentials-priority chain from .env, selects the model",
       );
       lines.push("");
       lines.push("Supported models (group → ids):");
@@ -220,7 +222,7 @@ const model: Command = {
       lines.push("");
       lines.push("Usage:");
       lines.push("  /model <id>     Switch the primary model for the next message");
-      lines.push("  /model clear    Drop the override, resume the default chain");
+      lines.push("  /model clear    Drop the in-session override (a saved dashboard policy still applies)");
       ctx.addSystemEvent(lines.join("\n"));
       return;
     }
@@ -228,7 +230,10 @@ const model: Command = {
     // Clear
     if (arg === "clear" || arg === "off" || arg === "none") {
       setModelOverride("");
-      ctx.addSystemEvent("Model override cleared. Default chain resumes on next message.");
+      ctx.addSystemEvent(
+        "Model override cleared. The saved dashboard policy (if any) applies to the next message; " +
+          "otherwise the default chain resumes.",
+      );
       return;
     }
 

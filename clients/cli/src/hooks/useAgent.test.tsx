@@ -78,9 +78,135 @@ describe("useAgent — engagement handoff lifecycle", () => {
       await act(async () => { await vi.runAllTimersAsync(); });
     }
     const requests = (mockState.client!.runs.stream as Mock).mock.calls.map((call) => call[2]);
-    expect(requests.map((request) => request.input.model_override)).toEqual(selections);
+    // Clearing drops the field entirely: `setModelOverride("")` means "no
+    // override", and the saved dashboard policy (absent here) has nothing to
+    // fall back to, so the run payload stays byte-identical to a plain one.
+    expect(requests.map((request) => request.input.model_override))
+      .toEqual([...selections.slice(0, 3), undefined]);
+    expect(requests.every((request) => request.input.model_overrides === undefined)).toBe(true);
     expect(requests.every((request) => request.context === undefined)).toBe(true);
     expect(requests.every((request) => request.config?.configurable.model_override === undefined)).toBe(true);
+  });
+
+  it("layers the saved dashboard model policy under the in-session choice", async () => {
+    const { setModelOverride } = await import("../commands/modelOverride.js");
+    vi.stubEnv("DECEPTICON_RUN_MODEL_OVERRIDE", "openai/gpt-5.5");
+    vi.stubEnv("DECEPTICON_RUN_MODEL_OVERRIDES", '{"soundwave":"auth/claude-sonnet-5"}');
+    const { result } = renderHook(() => useAgent());
+
+    // No `/model` in this session → the kickoff run carries the saved policy.
+    act(() => result.current.submit("hello"));
+    await act(async () => { await vi.runAllTimersAsync(); });
+    const saved = (mockState.client!.runs.stream as Mock).mock.calls.at(-1)?.[2];
+    expect(saved.input.model_override).toBe("openai/gpt-5.5");
+    expect(saved.input.model_overrides).toEqual({ soundwave: "auth/claude-sonnet-5" });
+
+    // `/model` typed in this terminal is the more recent intent → it wins.
+    setModelOverride("auth/gpt-6-luna");
+    act(() => result.current.submit("again"));
+    await act(async () => { await vi.runAllTimersAsync(); });
+    const typed = (mockState.client!.runs.stream as Mock).mock.calls.at(-1)?.[2];
+    expect(typed.input.model_override).toBe("auth/gpt-6-luna");
+    expect(typed.input.model_overrides).toEqual({ soundwave: "auth/claude-sonnet-5" });
+  });
+
+  it("sends the saved run-scoped LLM and guardrail knobs on the kickoff run only", async () => {
+    const { setModelOverride } = await import("../commands/modelOverride.js");
+    // Module-level store shared by every test in this file; clear the override
+    // the previous case left behind so this one isolates the saved policy.
+    setModelOverride("");
+    // No saved model row either: the model channel must stay absent.
+    vi.stubEnv("DECEPTICON_RUN_MODEL_OVERRIDE", "");
+    vi.stubEnv("DECEPTICON_RUN_MODEL_OVERRIDES", "");
+    const stream = mockState.client!.runs.stream as Mock;
+    vi.stubEnv("DECEPTICON_RUN_REASONING_EFFORT", "medium");
+    vi.stubEnv("DECEPTICON_RUN_LLM_MAX_OUTPUT_TOKENS", "4096");
+    vi.stubEnv("DECEPTICON_RUN_LLM_DISABLE_STREAMING", "1");
+    vi.stubEnv("DECEPTICON_RUN_BUDGET_ENGAGEMENT_USD", "25");
+    vi.stubEnv("DECEPTICON_RUN_BUDGET_PER_AGENT_USD", "5");
+    vi.stubEnv("DECEPTICON_RUN_BUDGET_SOFT_WARN_AT_PCT", "0.8");
+    vi.stubEnv("DECEPTICON_RUN_HITL_ENABLED", "true");
+    const { result } = renderHook(() => useAgent());
+
+    const pausedStream = createControllableStream();
+    stream.mockReturnValueOnce(pausedStream);
+    act(() => result.current.submit("hello"));
+    await act(async () => { await vi.runAllTimersAsync(); });
+
+    const kickoff = stream.mock.calls.at(-1)?.[2];
+    expect(kickoff.input).toMatchObject({
+      reasoning_effort: "medium",
+      llm_max_output_tokens: 4096,
+      llm_disable_streaming: true,
+      budget_engagement_usd: 25,
+      budget_per_agent_usd: 5,
+      budget_soft_warn_at_pct: 0.8,
+      hitl_enabled: true,
+    });
+    // No `/model` and no saved model row → the model channel stays absent.
+    expect("model_override" in kickoff.input).toBe(false);
+
+    // Reach the pause point, then resume: the kickoff-only fields are already
+    // in the checkpoint, so the update writes back just the model channel.
+    await act(async () => {
+      await pausedStream.emit({
+        event: "custom", data: { type: "ask_user_question", question: "Continue?" },
+      });
+    });
+    await act(async () => { pausedStream.end(); await vi.runAllTimersAsync(); });
+    expect(result.current.runState).toBe("paused");
+
+    act(() => result.current.resume("yes"));
+    await act(async () => { await vi.runAllTimersAsync(); });
+    expect(stream.mock.calls.at(-1)?.[2].command).toEqual({
+      resume: "yes", update: { model_override: "" },
+    });
+  });
+
+  it("omits every run-scoped knob when the saved policy is default", async () => {
+    const { setModelOverride } = await import("../commands/modelOverride.js");
+    // The model store is module-level and shared; clear it so this case pins
+    // "policy is default", not "whatever the previous case typed".
+    setModelOverride("");
+    vi.stubEnv("DECEPTICON_RUN_MODEL_OVERRIDE", "");
+    vi.stubEnv("DECEPTICON_RUN_MODEL_OVERRIDES", "");
+    for (const name of [
+      "DECEPTICON_RUN_REASONING_EFFORT",
+      "DECEPTICON_RUN_LLM_MAX_OUTPUT_TOKENS",
+      "DECEPTICON_RUN_LLM_DISABLE_STREAMING",
+      "DECEPTICON_RUN_BUDGET_ENGAGEMENT_USD",
+      "DECEPTICON_RUN_BUDGET_PER_AGENT_USD",
+      "DECEPTICON_RUN_BUDGET_SOFT_WARN_AT_PCT",
+      "DECEPTICON_RUN_HITL_ENABLED",
+    ]) {
+      vi.stubEnv(name, "");
+    }
+    const { result } = renderHook(() => useAgent());
+
+    act(() => result.current.submit("hello"));
+    await act(async () => { await vi.runAllTimersAsync(); });
+
+    const input = (mockState.client!.runs.stream as Mock).mock.calls.at(-1)?.[2].input;
+    expect(Object.keys(input ?? {}).sort()).toEqual(["messages"]);
+  });
+
+  it("never carries provider extra headers on the run input", async () => {
+    const { setModelOverride } = await import("../commands/modelOverride.js");
+    setModelOverride("");
+    vi.stubEnv("DECEPTICON_RUN_MODEL_OVERRIDE", "");
+    vi.stubEnv("DECEPTICON_RUN_MODEL_OVERRIDES", "");
+    // Provider headers are a startup-only deployment value the agent process
+    // reads from its own environment; the run input round-trips through the
+    // LangGraph checkpoint, so a header value must never reach it.
+    vi.stubEnv("DECEPTICON_RUN_LLM_EXTRA_HEADERS", '{"X-Tenant":"acme"}');
+    const { result } = renderHook(() => useAgent());
+
+    act(() => result.current.submit("hello"));
+    await act(async () => { await vi.runAllTimersAsync(); });
+
+    const input = (mockState.client!.runs.stream as Mock).mock.calls.at(-1)?.[2].input;
+    expect(Object.keys(input ?? {}).sort()).toEqual(["messages"]);
+    expect(JSON.stringify(input)).not.toContain("acme");
   });
 
   it.each(["resume", "answerQuestion"] as const)(

@@ -3,6 +3,7 @@ package migrate
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/PurpleAILAB/Decepticon/clients/launcher/internal/config"
@@ -224,5 +225,107 @@ func assertEnvKey(t *testing.T, path, key, want string) {
 	}
 	if env[key] != want {
 		t.Errorf("%s = %q, want %q", key, env[key], want)
+	}
+}
+
+func TestDashboardCredentials_generate_when_unconfigured(t *testing.T) {
+	// Given — a fresh .env with neither a session secret nor a credential.
+	c := newTestCtx(t, map[string]string{}, false)
+
+	// When
+	note, err := applyDashboardCredentials(c)
+
+	// Then
+	if err != nil {
+		t.Fatalf("applyDashboardCredentials: %v", err)
+	}
+	if note == "" {
+		t.Error("expected a note so the operator learns a password was created")
+	}
+	env, err := config.LoadEnv(c.EnvPath)
+	if err != nil {
+		t.Fatalf("LoadEnv: %v", err)
+	}
+	if len(env["DECEPTICON_SESSION_SECRET"]) != 64 {
+		t.Errorf("session secret = %q, want 64 hex chars", env["DECEPTICON_SESSION_SECRET"])
+	}
+	if env["DECEPTICON_ADMIN_USERNAME"] != config.DefaultAdminUsername {
+		t.Errorf("username = %q, want %q", env["DECEPTICON_ADMIN_USERNAME"], config.DefaultAdminUsername)
+	}
+	if len(env["DECEPTICON_INTERNAL_API_TOKEN"]) != 64 {
+		t.Errorf("internal token = %q, want 64 hex chars", env["DECEPTICON_INTERNAL_API_TOKEN"])
+	}
+	if !strings.HasPrefix(env["DECEPTICON_ADMIN_PASSWORD_HASH"], "pbkdf2$sha256$210000$") {
+		t.Errorf("password hash = %q, want a pbkdf2 digest", env["DECEPTICON_ADMIN_PASSWORD_HASH"])
+	}
+	if c.Env["DECEPTICON_SESSION_SECRET"] != env["DECEPTICON_SESSION_SECRET"] {
+		t.Error("in-memory env did not pick up the session secret")
+	}
+
+	// A second start must not rotate what the operator is already using.
+	before := env["DECEPTICON_ADMIN_PASSWORD_HASH"]
+	beforeToken := env["DECEPTICON_INTERNAL_API_TOKEN"]
+	reloaded, _ := config.LoadEnv(c.EnvPath)
+	c2 := &Ctx{EnvPath: c.EnvPath, Env: reloaded, Home: c.Home, IsTTY: false, ackPath: c.ackPath}
+	if _, err := applyDashboardCredentials(c2); err != nil {
+		t.Fatalf("second applyDashboardCredentials: %v", err)
+	}
+	assertEnvKey(t, c.EnvPath, "DECEPTICON_ADMIN_PASSWORD_HASH", before)
+	assertEnvKey(t, c.EnvPath, "DECEPTICON_INTERNAL_API_TOKEN", beforeToken)
+}
+
+func TestDashboardCredentials_preserve_an_operator_managed_hash(t *testing.T) {
+	// Given — the operator already generated their own scrypt hash.
+	hash := "scrypt$0123456789abcdef0123456789abcdef$" + strings.Repeat("ab", 32)
+	c := newTestCtx(t, map[string]string{"DECEPTICON_ADMIN_PASSWORD_HASH": hash}, false)
+	// The test context seeds .env from the telemetry key only; write the hash in.
+	if err := config.SetEnvKey(c.EnvPath, "DECEPTICON_ADMIN_PASSWORD_HASH", hash); err != nil {
+		t.Fatalf("seed hash: %v", err)
+	}
+
+	// When
+	if _, err := applyDashboardCredentials(c); err != nil {
+		t.Fatalf("applyDashboardCredentials: %v", err)
+	}
+
+	// Then — the hash is untouched, only the missing session secret is added.
+	assertEnvKey(t, c.EnvPath, "DECEPTICON_ADMIN_PASSWORD_HASH", hash)
+	env, _ := config.LoadEnv(c.EnvPath)
+	if len(env["DECEPTICON_SESSION_SECRET"]) != 64 {
+		t.Error("session secret should still be generated")
+	}
+}
+
+func TestDashboardCredentials_preserve_a_plaintext_password(t *testing.T) {
+	c := newTestCtx(t, map[string]string{}, false)
+	if err := config.SetEnvKey(c.EnvPath, "DECEPTICON_ADMIN_PASSWORD", "operator-chosen"); err != nil {
+		t.Fatalf("seed password: %v", err)
+	}
+	c.Env["DECEPTICON_ADMIN_PASSWORD"] = "operator-chosen"
+
+	if _, err := applyDashboardCredentials(c); err != nil {
+		t.Fatalf("applyDashboardCredentials: %v", err)
+	}
+	env, _ := config.LoadEnv(c.EnvPath)
+	if env["DECEPTICON_ADMIN_PASSWORD"] != "operator-chosen" {
+		t.Errorf("password = %q, want it preserved", env["DECEPTICON_ADMIN_PASSWORD"])
+	}
+	if env["DECEPTICON_ADMIN_PASSWORD_HASH"] != "" {
+		t.Error("no competing hash should be written over a plaintext password")
+	}
+}
+
+func TestRegistry_includes_the_dashboard_credential_step(t *testing.T) {
+	found := false
+	for _, step := range Registry() {
+		if step.ID == DashboardCredentialID {
+			found = true
+			if step.Interactive {
+				t.Error("dashboard credentials must be provisioned without a prompt")
+			}
+		}
+	}
+	if !found {
+		t.Fatal("dashboard credential step missing from Registry()")
 	}
 }
