@@ -15,9 +15,11 @@ from decepticon.llm.factory import (
     _is_real_key,
     _llamacpp_local_configured,
     _method_is_configured,
+    _model_accepts_reasoning_effort,
     _model_max_output_tokens,
     _oauth_credentials_present,
     _oauth_env_credentials_present,
+    _ollama_cloud_configured,
     _resolve_credentials,
     _resolve_max_tokens,
 )
@@ -506,9 +508,9 @@ class TestLLMFactoryEmptyChainValidation:
     roles, so the failure surfaces much later — either as a confusing
     ``KeyError: No model assignment for role: ...`` at ``get_model`` time
     or, when a caller routes through middleware, as a primary-less
-    ``ModelFallbackMiddleware([])``. Validate at construction so the
-    operator gets one actionable error naming the empty tier(s) and the
-    configured credentials inventory."""
+    model stack with the MODEL_FALLBACK slot silently dropped. Validate at
+    construction so the operator gets one actionable error naming the empty
+    tier(s) and the configured credentials inventory."""
 
     def setup_method(self) -> None:
         self.proxy = ProxyConfig(url="http://localhost:4000", api_key="test-key")
@@ -570,6 +572,10 @@ class TestResolveCredentials:
             "NVIDIA_API_KEY",
             "OLLAMA_API_BASE",
             "OLLAMA_MODEL",
+            "OLLAMA_CLOUD_API_BASE",
+            "OLLAMA_CLOUD_MODEL",
+            "OLLAMA_CLOUD_API_KEY",
+            "OLLAMA_API_KEY",
         ):
             monkeypatch.delenv(k, raising=False)
         monkeypatch.delenv("DECEPTICON_AUTH_PRIORITY", raising=False)
@@ -672,6 +678,10 @@ class TestResolveCredentials:
             "NVIDIA_API_KEY",
             "OLLAMA_API_BASE",
             "OLLAMA_MODEL",
+            "OLLAMA_CLOUD_API_BASE",
+            "OLLAMA_CLOUD_MODEL",
+            "OLLAMA_CLOUD_API_KEY",
+            "OLLAMA_API_KEY",
         ):
             monkeypatch.delenv(k, raising=False)
         monkeypatch.delenv("DECEPTICON_AUTH_PRIORITY", raising=False)
@@ -716,6 +726,10 @@ class TestResolveCredentials:
             "NVIDIA_API_KEY",
             "OLLAMA_API_BASE",
             "OLLAMA_MODEL",
+            "OLLAMA_CLOUD_API_BASE",
+            "OLLAMA_CLOUD_MODEL",
+            "OLLAMA_CLOUD_API_KEY",
+            "OLLAMA_API_KEY",
         ):
             monkeypatch.delenv(k, raising=False)
         monkeypatch.delenv("DECEPTICON_AUTH_PRIORITY", raising=False)
@@ -770,6 +784,8 @@ class TestResolveCredentials:
             "OLLAMA_MODEL",
             "OLLAMA_CLOUD_API_BASE",
             "OLLAMA_CLOUD_MODEL",
+            "OLLAMA_CLOUD_API_KEY",
+            "OLLAMA_API_KEY",
             "LMSTUDIO_API_BASE",
             "LMSTUDIO_MODEL",
             "CUSTOM_OPENAI_API_BASE",
@@ -827,6 +843,10 @@ class TestResolveCredentials:
             "NVIDIA_API_KEY",
             "OLLAMA_API_BASE",
             "OLLAMA_MODEL",
+            "OLLAMA_CLOUD_API_BASE",
+            "OLLAMA_CLOUD_MODEL",
+            "OLLAMA_CLOUD_API_KEY",
+            "OLLAMA_API_KEY",
         ):
             monkeypatch.delenv(k, raising=False)
         monkeypatch.delenv("DECEPTICON_AUTH_PRIORITY", raising=False)
@@ -959,6 +979,38 @@ class TestTemperatureDrop:
     def test_kimi_via_custom_prefix_drops_temperature(self):
         # Operators routing api.kimi.com through custom/ still get the drop.
         assert self._drops("custom/kimi-for-coding") is True
+
+
+@pytest.mark.parametrize(
+    ("model_id", "expected"),
+    [
+        # GPT-6 Responses-API routes — codex_chatgpt_handler maps reasoning.effort.
+        ("openai/gpt-6-astra", True),
+        ("openai/gpt-6.1-sol", True),
+        ("auth/gpt-6.1-sol", False),  # not an openai/gpt-6* id: chat handler
+        # Claude families — claude_code_handler._reasoning_params reads the alias.
+        ("anthropic/claude-opus-4-7", True),
+        ("auth/claude-sonnet-5", True),
+        ("openrouter/anthropic/claude-haiku-4-5", True),
+        ("anthropic/claude-fable-5-1", True),
+        # Everything else 400s on the unknown body param.
+        ("groq/llama-3.3-70b-versatile", False),
+        ("gemini/gemini-3.8-flash", False),
+        ("nvidia_nim/meta/llama-3.3-70b-instruct", False),
+        ("openai/gpt-5.5", False),
+        ("ollama_chat/qwen3-coder:30b", False),
+    ],
+)
+def test_model_accepts_reasoning_effort(model_id: str, expected: bool) -> None:
+    """``reasoning_effort`` reaches the wire only where a handler maps it."""
+    assert _model_accepts_reasoning_effort(model_id) is expected
+
+
+def test_openrouter_claude_slug_beats_path_namespace() -> None:
+    """The check is on the LAST path segment, not the vendor path segment:
+    ``auth/gpt-6.1-sol`` routes through the Codex handler only when the whole
+    id is the openai/gpt-6* prefix, but any namespace may carry a claude slug."""
+    assert _model_accepts_reasoning_effort("bedrock/anthropic/claude-sonnet-5") is True
 
 
 # ── Actionable error translation (issue #107 + community feedback) ──────
@@ -1525,6 +1577,11 @@ def _scrub_other_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
         "OLLAMA_MODEL",
         "OLLAMA_CLOUD_API_BASE",
         "OLLAMA_CLOUD_MODEL",
+        # The cloud key env vars are credential signals too (a real key in
+        # either one opts OLLAMA_CLOUD in), so they must be scrubbed or the
+        # "only X detected" assertions below depend on the developer's shell.
+        "OLLAMA_CLOUD_API_KEY",
+        "OLLAMA_API_KEY",
         "LMSTUDIO_API_BASE",
         "LMSTUDIO_MODEL",
         "CUSTOM_OPENAI_API_BASE",
@@ -1573,6 +1630,100 @@ class TestLlamacppLocalConfigured:
         monkeypatch.setenv("LLAMACPP_API_BASE", "   ")
         monkeypatch.setenv("LLAMACPP_MODEL", "")
         assert _llamacpp_local_configured() is False
+
+
+class TestOllamaCloudConfigured:
+    """``_ollama_cloud_configured`` must not treat the launcher's template
+    key as an opt-in.
+
+    The onboard wizard writes ``OLLAMA_CLOUD_API_KEY=your-ollama-cloud-key-here``
+    into ``.env`` before the user has a credential. Treating that placeholder
+    as "configured" made ``ollama_cloud/llama3.2`` the ONLY method of the
+    credentials chain, so a deployment that runs exclusively through its own
+    custom LiteLLM channel sent every model call to Ollama Cloud with an
+    invalid Bearer token. Base/model stay explicit opt-ins; a real key alone
+    still opts in.
+    """
+
+    _CLOUD_ENV = (
+        "OLLAMA_CLOUD_API_BASE",
+        "OLLAMA_CLOUD_MODEL",
+        "OLLAMA_CLOUD_API_KEY",
+        "OLLAMA_API_KEY",
+    )
+
+    def test_placeholder_key_alone_does_not_opt_in(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _scrub_other_credentials(monkeypatch)
+        for var in self._CLOUD_ENV:
+            monkeypatch.delenv(var, raising=False)
+        monkeypatch.setenv("OLLAMA_CLOUD_API_KEY", "your-ollama-cloud-key-here")
+        assert _is_real_key("your-ollama-cloud-key-here", AuthMethod.OLLAMA_CLOUD) is False
+        assert _ollama_cloud_configured() is False
+        assert _method_is_configured(AuthMethod.OLLAMA_CLOUD) is False
+
+    def test_placeholder_key_falls_back_to_all_api_methods(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The user's real shape: only the template cloud key in ``.env``.
+
+        The resolver must NOT return an Ollama-Cloud-only chain — that chain
+        is what made a custom-channel run execute on ``ollama_cloud/llama3.2``.
+        """
+        _scrub_other_credentials(monkeypatch)
+        for var in self._CLOUD_ENV:
+            monkeypatch.delenv(var, raising=False)
+        monkeypatch.setenv("OLLAMA_CLOUD_API_KEY", "your-ollama-cloud-key-here")
+        monkeypatch.delenv("DECEPTICON_AUTH_PRIORITY", raising=False)
+
+        creds = _resolve_credentials()
+        assert AuthMethod.OLLAMA_CLOUD not in creds.methods
+        assert creds.methods == Credentials.all_api_methods().methods
+
+    def test_placeholder_variants_do_not_opt_in(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _scrub_other_credentials(monkeypatch)
+        for placeholder in (
+            "your-ollama-cloud-key-here",
+            "not-used",
+            "sk-placeholder-value-for-testing",
+            "short",
+            "  ",
+        ):
+            for var in self._CLOUD_ENV:
+                monkeypatch.delenv(var, raising=False)
+            monkeypatch.setenv("OLLAMA_CLOUD_API_KEY", placeholder)
+            assert _ollama_cloud_configured() is False, placeholder
+
+    def test_real_key_alone_still_opts_in(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A user who pasted only their key (relying on the default base +
+        model) stays a cloud user — the placeholder fix must not remove that
+        onboard path.
+        """
+        _scrub_other_credentials(monkeypatch)
+        for var in self._CLOUD_ENV:
+            monkeypatch.delenv(var, raising=False)
+        monkeypatch.setenv("OLLAMA_CLOUD_API_KEY", "a" * 40)
+        assert _ollama_cloud_configured() is True
+        assert _resolve_credentials().methods == [AuthMethod.OLLAMA_CLOUD]
+
+    def test_legacy_ollama_api_key_is_accepted_when_real(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _scrub_other_credentials(monkeypatch)
+        for var in self._CLOUD_ENV:
+            monkeypatch.delenv(var, raising=False)
+        monkeypatch.setenv("OLLAMA_API_KEY", "b" * 40)
+        assert _ollama_cloud_configured() is True
+
+    def test_base_or_model_alone_still_opt_in(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        for var, value in (
+            ("OLLAMA_CLOUD_API_BASE", "https://ollama.com/v1"),
+            ("OLLAMA_CLOUD_MODEL", "qwen3-coder:30b"),
+        ):
+            _scrub_other_credentials(monkeypatch)
+            for var_name in self._CLOUD_ENV:
+                monkeypatch.delenv(var_name, raising=False)
+            monkeypatch.setenv(var, value)
+            assert _ollama_cloud_configured() is True, var
 
 
 class TestResolveCredentialsForLlamacpp:

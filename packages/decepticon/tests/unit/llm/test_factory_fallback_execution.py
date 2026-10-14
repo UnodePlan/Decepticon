@@ -16,6 +16,13 @@ resolves to ``BaseChatModel.invoke``. Monkeypatching that single method
 at the class level lets us drive both ``_ProxiedChatOpenAI``'s upstream
 error translation **and** ``ModelFallbackMiddleware.wrap_model_call``'s
 retry-on-exception logic end-to-end, without touching the network.
+
+These cases deliberately drive the UPSTREAM class. The stack installs
+``OverrideRespectingModelFallbackMiddleware`` (a subclass — see
+``tests/unit/middleware/test_model_override.py``), which delegates to this
+exact code path whenever the run has no model override pinned, which is the
+only situation covered here: an explicit override turns the chain off, so the
+baseline chain semantics ARE the parent's.
 """
 
 from __future__ import annotations

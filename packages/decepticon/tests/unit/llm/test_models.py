@@ -345,6 +345,68 @@ class TestOllamaLocalChain:
         assert chain == ["ollama_chat/qwen3-coder:30b", "openai/gpt-5.5"]
 
 
+class TestOllamaCloudChain:
+    """OLLAMA_CLOUD resolves from the cloud env at chain-build time.
+
+    The launcher's onboard wizard pre-writes a template key
+    (``your-ollama-cloud-key-here``) into ``.env``. That template must count
+    as "not wired up": with a placeholder treated as configured,
+    ``ollama_cloud/llama3.2`` became the ONLY chain entry for every agent, so
+    a deployment running its own custom LiteLLM channel executed every model
+    call against Ollama Cloud with an invalid Bearer token. The framework's
+    ``_ollama_cloud_configured`` gate applies the same rule — a divergence
+    here would put the cloud route in a chain the detector already dropped.
+    """
+
+    _CLOUD_ENV = (
+        "OLLAMA_CLOUD_API_BASE",
+        "OLLAMA_CLOUD_MODEL",
+        "OLLAMA_CLOUD_API_KEY",
+        "OLLAMA_API_KEY",
+    )
+
+    def _scrub(self, monkeypatch) -> None:
+        for var in self._CLOUD_ENV:
+            monkeypatch.delenv(var, raising=False)
+
+    def test_placeholder_key_only_is_skipped(self, monkeypatch):
+        self._scrub(monkeypatch)
+        monkeypatch.setenv("OLLAMA_CLOUD_API_KEY", "your-ollama-cloud-key-here")
+        creds = Credentials(methods=[AuthMethod.OLLAMA_CLOUD, AuthMethod.OPENAI_API])
+        assert resolve_chain(Tier.HIGH, creds) == ["openai/gpt-5.5"]
+
+    def test_placeholder_key_alone_yields_empty_chain(self, monkeypatch):
+        self._scrub(monkeypatch)
+        monkeypatch.setenv("OLLAMA_CLOUD_API_KEY", "your-ollama-cloud-key-here")
+        creds = Credentials(methods=[AuthMethod.OLLAMA_CLOUD])
+        assert resolve_chain(Tier.HIGH, creds) == []
+
+    def test_real_key_resolves_the_cloud_route(self, monkeypatch):
+        self._scrub(monkeypatch)
+        monkeypatch.setenv("OLLAMA_CLOUD_API_KEY", "c" * 40)
+        creds = Credentials(methods=[AuthMethod.OLLAMA_CLOUD])
+        assert resolve_chain(Tier.HIGH, creds) == ["ollama_cloud/llama3.2"]
+
+    def test_real_key_with_explicit_model(self, monkeypatch):
+        self._scrub(monkeypatch)
+        monkeypatch.setenv("OLLAMA_CLOUD_API_KEY", "c" * 40)
+        monkeypatch.setenv("OLLAMA_CLOUD_MODEL", "qwen3-coder:30b")
+        creds = Credentials(methods=[AuthMethod.OLLAMA_CLOUD])
+        assert resolve_chain(Tier.HIGH, creds) == ["ollama_cloud/qwen3-coder:30b"]
+
+    def test_base_alone_still_opts_in(self, monkeypatch):
+        self._scrub(monkeypatch)
+        monkeypatch.setenv("OLLAMA_CLOUD_API_BASE", "https://ollama.com/v1")
+        creds = Credentials(methods=[AuthMethod.OLLAMA_CLOUD])
+        assert resolve_chain(Tier.HIGH, creds) == ["ollama_cloud/llama3.2"]
+
+    def test_legacy_ollama_api_key_placeholder_is_skipped(self, monkeypatch):
+        self._scrub(monkeypatch)
+        monkeypatch.setenv("OLLAMA_API_KEY", "your-ollama-key-here")
+        creds = Credentials(methods=[AuthMethod.OLLAMA_CLOUD, AuthMethod.OPENAI_API])
+        assert resolve_chain(Tier.HIGH, creds) == ["openai/gpt-5.5"]
+
+
 # ── LLAMACPP_LOCAL dynamic resolution (issue #151) ──────────────────────
 
 

@@ -114,7 +114,7 @@ def create_detector_agent(
             ``make_agent_backend(build_sandbox_backend())``.
         llm: bound chat model. Defaults to
             ``LLMFactory().get_model("detector")``.
-        fallback_models: passed to ``ModelFallbackMiddleware``. Defaults
+        fallback_models: passed to the ``model-fallback`` slot. Defaults
             to ``LLMFactory().get_fallback_models("detector")``.
         tools: full tool list — when provided, replaces the standard
             registry entirely. When ``None`` (default), the OSS

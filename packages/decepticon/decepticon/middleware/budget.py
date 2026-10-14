@@ -36,7 +36,10 @@ Enforcement
 Disabled by default
 -------------------
 A non-positive ``ENGAGEMENT_USD`` cap means the middleware is a no-op. This
-preserves the current behavior for users who haven't opted in.
+preserves the current behavior for users who haven't opted in. A run may
+raise its own caps via ``request.state`` (``budget_engagement_usd`` /
+``budget_per_agent_usd`` / ``budget_soft_warn_at_pct``), which override the
+deployment values for that run only; absent state keys change nothing.
 
 Architectural notes
 -------------------
@@ -87,6 +90,25 @@ def _env_float(name: str, default: float) -> float:
     except ValueError:
         log.warning("invalid float for %s=%r; falling back to %s", name, raw, default)
         return default
+
+
+def _coerce_float(raw: Any) -> float | None:
+    """Parse a run-state value to float; ``None`` when it is not numeric.
+
+    State values cross a JSON wire, so an int/float arrives as-is while a
+    string is possible from a hand-written run input. Booleans are rejected
+    explicitly — ``float(True) == 1.0`` would silently turn on a cap.
+    """
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, int | float):
+        return float(raw)
+    if isinstance(raw, str):
+        try:
+            return float(raw.strip())
+        except ValueError:
+            return None
+    return None
 
 
 class _SpendCache:
@@ -155,6 +177,11 @@ class BudgetEnforcementMiddleware(AgentMiddleware):
     queries the LiteLLM proxy ``/spend/tags`` API using the same proxy
     URL/key the LLM factory resolves; injecting a stub provider makes
     this trivially unit-testable.
+
+    Caps can also be raised per run: ``budget_engagement_usd``,
+    ``budget_per_agent_usd`` and ``budget_soft_warn_at_pct`` (a fraction
+    in ``(0, 1]``) in ``request.state`` override the deployment values for
+    that run — see :meth:`_resolve_caps`.
     """
 
     def __init__(
@@ -190,6 +217,12 @@ class BudgetEnforcementMiddleware(AgentMiddleware):
         self._cache = _SpendCache(ttl_seconds=poll)
         self._spend_provider = spend_provider or _default_litellm_spend_provider
         self._warned_scopes: set[str] = set()
+        # Warn-once bookkeeping for malformed run-state values. Enforcement
+        # runs before every model call, so an un-deduplicated warning would
+        # repeat for the whole engagement and drown the log an operator
+        # needs to diagnose the run. Keyed by (knob, value) so a genuinely
+        # different bad value still reports while an identical one does not.
+        self._warned_bad_state: set[tuple[str, str]] = set()
         # awrap_model_call runs _enforce in a thread-pool executor, so two
         # concurrent agents sharing an engagement can enter _check_one on
         # different threads. This lock keeps the cache-miss→fetch→set window
@@ -199,6 +232,77 @@ class BudgetEnforcementMiddleware(AgentMiddleware):
         # budget-enforce threads — the event loop itself is never blocked
         # (enforcement runs off-loop via asyncio.to_thread).
         self._lock = threading.Lock()
+
+    def _resolve_caps(self, request: Any) -> tuple[float, float, float]:
+        """Resolve ``(engagement_cap, per_agent_cap, soft_warn_frac)`` for one run.
+
+        Precedence is state-first: the per-run operator intent (the Web/CLI
+        run settings threaded into ``request.state``) wins over the
+        deployment-wide constructor/env values, for that run only. Each key
+        is consumed independently, so a run can raise one cap without
+        touching the rest. A key that is absent, non-numeric, or outside its
+        valid range (``> 0`` for the caps, a FRACTION in ``(0, 1]`` for the
+        soft-warn threshold — the wire sends 0..1, not 0..100) falls back to
+        the deployment value: a bad run input is logged and ignored rather
+        than raising, because a malformed knob must not take the guardrail
+        down or silently widen it.
+
+        A request without state keys returns exactly the deployment values,
+        so pre-existing runs enforce byte-identically to before this knob
+        existed.
+        """
+        state = getattr(request, "state", None) or {}
+        get = state.get if hasattr(state, "get") else (lambda _k, _d=None: None)
+
+        engagement_cap = self._override_positive(
+            get("budget_engagement_usd"), self._engagement_cap, "budget_engagement_usd"
+        )
+        per_agent_cap = self._override_positive(
+            get("budget_per_agent_usd"), self._per_agent_cap, "budget_per_agent_usd"
+        )
+        soft_warn = self._override_fraction(
+            get("budget_soft_warn_at_pct"), self._soft_warn, "budget_soft_warn_at_pct"
+        )
+        return engagement_cap, per_agent_cap, soft_warn
+
+    def _override_positive(self, raw: Any, fallback: float, key: str) -> float:
+        """Return the state value for ``key`` when it is a positive number.
+
+        Anything else (absent, non-numeric, zero/negative) keeps the
+        deployment fallback and is reported once (see :meth:`_warn_bad_state`).
+        """
+        if raw is None:
+            return fallback
+        value = _coerce_float(raw)
+        if value is not None and value > 0:
+            return value
+        self._warn_bad_state(raw, key, fallback)
+        return fallback
+
+    def _override_fraction(self, raw: Any, fallback: float, key: str) -> float:
+        """Return the state value for ``key`` when it is a fraction in (0, 1]."""
+        if raw is None:
+            return fallback
+        value = _coerce_float(raw)
+        if value is not None and 0 < value <= 1:
+            return value
+        self._warn_bad_state(raw, key, fallback)
+        return fallback
+
+    def _warn_bad_state(self, raw: Any, key: str, fallback: float) -> None:
+        """Log a malformed run-state value once, then keep silent for it.
+
+        A malformed value is not a one-off: enforcement runs before every
+        model call, so an un-deduplicated warning would repeat for the rest
+        of the engagement and drown the log an operator needs to diagnose
+        it. The message names the fallback actually in force so the operator
+        can see what is being enforced after the bad value was rejected.
+        """
+        dedup_key = (key, repr(raw))
+        if dedup_key in self._warned_bad_state:
+            return
+        self._warned_bad_state.add(dedup_key)
+        log.warning("invalid %s=%r in run state; falling back to %s", key, raw, fallback)
 
     def _enabled(self) -> bool:
         return self._engagement_cap > 0 or self._per_agent_cap > 0
@@ -220,9 +324,13 @@ class BudgetEnforcementMiddleware(AgentMiddleware):
         agent_name = agent_name or "default-agent"
         return engagement, agent_name
 
-    def _check_one(self, scope_kind: str, scope_key: str, cap_usd: float) -> None:
+    def _check_one(
+        self, scope_kind: str, scope_key: str, cap_usd: float, *, soft_warn: float | None = None
+    ) -> None:
         if cap_usd <= 0:
             return
+        if soft_warn is None:
+            soft_warn = self._soft_warn
         # Hold the lock across the whole check so a cache miss serializes
         # concurrent agents onto a single fetch (the loser sees the warm
         # cache), and so the soft-warn check-then-add can't double-fire.
@@ -244,7 +352,7 @@ class BudgetEnforcementMiddleware(AgentMiddleware):
                 raise BudgetExceeded(scope_kind, cached, cap_usd)
             warn_key = f"{scope_kind}:{scope_key}"
             already_warned = warn_key in self._warned_scopes
-            if frac >= self._soft_warn and not already_warned:
+            if frac >= soft_warn and not already_warned:
                 self._warned_scopes.add(warn_key)
                 log.warning(
                     "budget soft-warn: scope=%s spent=$%.4f of $%.2f (%.0f%%)",
@@ -256,11 +364,18 @@ class BudgetEnforcementMiddleware(AgentMiddleware):
                 _emit_warning_event(scope_kind, cached, cap_usd, frac)
 
     def _enforce(self, request: Any) -> None:
-        if not self._enabled():
+        # Resolve the caps for THIS run first: state overrides the
+        # deployment values, and a run that raised a cap on an otherwise
+        # uncapped deployment must be enforced. With no state keys this is
+        # exactly the pre-existing env/constructor behaviour.
+        engagement_cap, per_agent_cap, soft_warn = self._resolve_caps(request)
+        if engagement_cap <= 0 and per_agent_cap <= 0:
             return
         engagement, agent = self._scope_keys(request)
-        self._check_one("engagement", f"engagement:{engagement}", self._engagement_cap)
-        self._check_one("agent", f"agent:{engagement}:{agent}", self._per_agent_cap)
+        self._check_one(
+            "engagement", f"engagement:{engagement}", engagement_cap, soft_warn=soft_warn
+        )
+        self._check_one("agent", f"agent:{engagement}:{agent}", per_agent_cap, soft_warn=soft_warn)
 
     def _tag_request(self, request: Any) -> Any:
         """Attach scope tags to the outbound completion via ``metadata.tags``.
@@ -270,6 +385,10 @@ class BudgetEnforcementMiddleware(AgentMiddleware):
         work. Tags are merged non-destructively: existing ``model_settings``
         keys (e.g. an ``extra_body.thinking`` block) and pre-existing tags
         are preserved.
+
+        Tagging stays keyed on the deployment caps, exactly as before: spend
+        attribution is a deployment-level concern, and a request with no cap
+        state comes out of here untouched.
         """
         if not self._enabled():
             return request

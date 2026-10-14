@@ -531,15 +531,20 @@ def _build_exploit_stack(**kwargs):
 
 
 def test_exploit_stack_contains_additive_wave2_slots(monkeypatch):
-    """Every role gains event-logging + shield + budget; HITL stays out
-    by default so engagements never freeze on a missing operator."""
+    """Every role gains event-logging + shield + budget + the HITL slot.
+
+    HITL is present in every stack but INACTIVE by default (no env flag, no
+    run state) so engagements never freeze on a missing operator — the
+    middleware short-circuits before policy matching."""
     monkeypatch.delenv("DECEPTICON_HITL__ENABLED", raising=False)
     monkeypatch.delenv("DECEPTICON_ALLOW_SAFETY_OVERRIDES", raising=False)
     stack = _build_exploit_stack()
     assert any(isinstance(m, EventLogMiddleware) for m in stack)
     assert any(isinstance(m, PromptInjectionShieldMiddleware) for m in stack)
     assert any(isinstance(m, BudgetEnforcementMiddleware) for m in stack)
-    assert not any(isinstance(m, HITLApprovalMiddleware) for m in stack)
+    hitl = next(m for m in stack if isinstance(m, HITLApprovalMiddleware))
+    assert hitl._enabled_default is False
+    assert hitl._enabled(SimpleNamespace(state={})) is False
 
 
 def test_exploit_stack_shield_does_not_double_inject_policy(monkeypatch):
@@ -559,6 +564,8 @@ def test_exploit_stack_includes_hitl_when_env_enabled(monkeypatch, tmp_path, fla
     monkeypatch.delenv("DECEPTICON_WORKSPACE_PATH", raising=False)
     stack = _build_exploit_stack()
     hitl = next(m for m in stack if isinstance(m, HITLApprovalMiddleware))
+    assert hitl._enabled_default is True
+    assert hitl._enabled(SimpleNamespace(state={})) is True
     # No build-time transport: nothing touches the filesystem until a
     # request resolves a per-request transport from its workspace_path.
     assert hitl._transport is None
@@ -575,10 +582,16 @@ def test_exploit_stack_includes_hitl_when_env_enabled(monkeypatch, tmp_path, fla
 
 
 @pytest.mark.parametrize("flag", ["", "0", "false", "no", "off"])
-def test_hitl_absent_for_falsy_env(monkeypatch, flag):
+def test_hitl_inactive_for_falsy_env_but_slot_present(monkeypatch, flag):
+    """A falsy/unset env flag keeps the slot in the stack, but switched off.
+
+    The stack shape no longer depends on the env flag, so a per-run request
+    can turn the gate on without rebuilding the graph."""
     monkeypatch.setenv("DECEPTICON_HITL__ENABLED", flag)
     stack = _build_exploit_stack()
-    assert not any(isinstance(m, HITLApprovalMiddleware) for m in stack)
+    hitl = next(m for m in stack if isinstance(m, HITLApprovalMiddleware))
+    assert hitl._enabled_default is False
+    assert hitl._enabled(SimpleNamespace(state={})) is False
 
 
 def test_middleware_slot_enum_order_is_assembly_order():

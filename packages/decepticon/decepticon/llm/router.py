@@ -23,9 +23,10 @@ class ModelRouter:
         """Return the full ordered chain: ``[primary, *fallbacks]``.
 
         The chain mirrors the user's credentials priority list as
-        resolved at the agent's tier. ``ModelFallbackMiddleware``
+        resolved at the agent's tier. The MODEL_FALLBACK slot
         consumes this directly: primary first, each fallback tried
-        in turn on failure.
+        in turn on failure — unless the run pins an override, in which
+        case ``OverrideRespectingModelFallbackMiddleware`` skips the chain.
         """
         assignment = self.get_assignment(role)
         return [assignment.primary, *assignment.fallbacks]

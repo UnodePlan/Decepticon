@@ -416,12 +416,23 @@ def _ollama_cloud_configured() -> bool:
     The key is included so a user who pasted only their key into
     `decepticon onboard` (relying on the default base + model) is still
     detected as a cloud user instead of silently falling through.
+
+    A key that is merely the launcher's template placeholder
+    (``your-ollama-cloud-key-here``) does NOT opt the user in: the
+    onboard wizard writes that template into ``.env`` before the user has
+    a credential, and treating it as "configured" made
+    ``ollama_cloud/llama3.2`` the single-method primary for every agent —
+    so a deployment that only uses its own custom LiteLLM channel ran
+    every model call against Ollama Cloud with an invalid Bearer token.
+    Base/model remain explicit opt-ins on their own (same contract as
+    :func:`_ollama_local_configured`).
     """
+    key = os.getenv("OLLAMA_CLOUD_API_KEY", "").strip() or os.getenv("OLLAMA_API_KEY", "").strip()
+    if key and _is_real_key(key, AuthMethod.OLLAMA_CLOUD):
+        return True
     return bool(
         os.getenv("OLLAMA_CLOUD_API_BASE", "").strip()
         or os.getenv("OLLAMA_CLOUD_MODEL", "").strip()
-        or os.getenv("OLLAMA_CLOUD_API_KEY", "").strip()
-        or os.getenv("OLLAMA_API_KEY", "").strip()
     )
 
 
@@ -819,7 +830,15 @@ def _method_detail(method: AuthMethod, *, configured: bool) -> str:
         if env_vars:
             sources = f"{sources} or {env_vars}"
         return f"{flag}=true but no credential ({sources})"
-    if method in _LOCAL_METHODS or method == AuthMethod.OLLAMA_CLOUD:
+    if method == AuthMethod.OLLAMA_CLOUD:
+        if configured:
+            return f"{env} set"
+        # A template/placeholder key does not count, so name the key (what
+        # `decepticon onboard` writes) as an alternative to the base URL and
+        # say why an existing value was ignored instead of leaving the
+        # operator staring at a filled-in .env line.
+        return "set OLLAMA_CLOUD_API_KEY (placeholder values are ignored) or OLLAMA_CLOUD_API_BASE"
+    if method in _LOCAL_METHODS:
         return f"{env} set" if configured else f"set {env} (and the matching *_MODEL)"
     if configured:
         return f"{env} set"
@@ -1042,6 +1061,25 @@ def _model_drops_temperature(model: str) -> bool:
 def _model_uses_responses_api(model: str) -> bool:
     """GPT-6 agent tool calls require the Responses API, not Chat Completions."""
     return model.startswith("openai/gpt-6-") or model.startswith("openai/gpt-6.1-")
+
+
+def _model_accepts_reasoning_effort(model: str) -> bool:
+    """Return True when the LiteLLM route for ``model`` maps ``reasoning_effort``.
+
+    Only two handlers translate the param: ``config/claude_code_handler.py``
+    (``_reasoning_params``, which reads the OpenAI-style ``reasoning_effort``
+    alias into ``output_config.effort``) and
+    ``config/codex_chatgpt_handler.py`` (``reasoning.effort``) — the latter
+    being the GPT-6 Responses-API routes. Every other provider 400s on an
+    unknown body param, so the runtime run-settings middleware attaches
+    ``reasoning_effort`` for those families only.
+
+    Matched on the last path segment (``anthropic/claude-…``,
+    ``auth/claude-…``, ``openrouter/anthropic/claude-…``) so every namespace
+    the launcher can route through is covered without enumerating them.
+    """
+    slug = model.rsplit("/", 1)[-1].lower()
+    return _model_uses_responses_api(model) or "claude" in slug
 
 
 def _model_is_claude_adaptive(model: str) -> bool:
@@ -1584,7 +1622,8 @@ def _validate_chain_coverage(credentials: Credentials, profile: ModelProfile) ->
     whose resolved chain is empty (no configured AuthMethod has a
     ``(method, tier)`` entry in ``METHOD_MODELS``). Downstream this surfaces
     as a confusing ``KeyError`` at ``get_model`` time or a primary-less
-    ``ModelFallbackMiddleware([])``. Surface it once, here, with the
+    model stack with the MODEL_FALLBACK slot dropped (empty
+    ``fallback_models``). Surface it once, here, with the
     offending tier(s) + the configured inventory so the operator can fix
     config immediately rather than chase a runtime failure.
     """
@@ -1753,8 +1792,11 @@ class LLMFactory:
 
         Each entry mirrors one entry from the agent's credentials chain
         beyond the primary. The agent passes the result via
-        ``ModelFallbackMiddleware(*models)``, which tries them in order
-        until one succeeds. ``default_role`` works as in ``get_model``.
+        ``OverrideRespectingModelFallbackMiddleware(*models, role=…)``, which
+        tries them in order until one succeeds — except while the run pins a
+        model override, when the chain is skipped so the override's own
+        provider error surfaces instead of an answer from another vendor.
+        ``default_role`` works as in ``get_model``.
         """
         default_role = self._resolve_default_role(role, default_role)
         assignment = self._compose_assignment(

@@ -162,6 +162,7 @@ def test_middleware_passes_through_unmatched_tools():
     mw = HITLApprovalMiddleware(
         policy=[ApprovalPolicyRule(tool_pattern=r"^dangerous_tool$")],
         transport=t,
+        enabled=True,
     )
     request = _Req("safe_tool", {"x": 1})
     result = mw.wrap_tool_call(request, _allow_handler)
@@ -174,6 +175,7 @@ def test_middleware_blocks_matched_tool_until_decision():
     mw = HITLApprovalMiddleware(
         policy=[ApprovalPolicyRule(tool_pattern=r"^dangerous$", timeout_seconds=2.0)],
         transport=t,
+        enabled=True,
     )
     request = _Req("dangerous", {"target": "10.0.0.1"})
 
@@ -199,6 +201,7 @@ def test_middleware_denies_on_timeout_by_default():
             )
         ],
         transport=t,
+        enabled=True,
     )
     request = _Req("dangerous", {})
     result = mw.wrap_tool_call(request, _allow_handler)
@@ -212,6 +215,7 @@ def test_middleware_matches_by_technique_tag():
     mw = HITLApprovalMiddleware(
         policy=[ApprovalPolicyRule(technique_tag="T1003", timeout_seconds=0.2)],
         transport=t,
+        enabled=True,
     )
     state = {"current_objective": {"technique_id": "T1003"}}
     request = _Req("any_tool", {}, state=state)
@@ -234,6 +238,7 @@ def test_middleware_redacts_secrets_in_request_payload():
     mw = HITLApprovalMiddleware(
         policy=[ApprovalPolicyRule(tool_pattern=r"^dangerous$", timeout_seconds=0.15)],
         transport=t,
+        enabled=True,
     )
     request = _Req("dangerous", {"username": "u", "password": "very-secret"})
     mw.wrap_tool_call(request, _allow_handler)
@@ -250,6 +255,7 @@ async def test_middleware_async_path_blocks_and_allows():
     mw = HITLApprovalMiddleware(
         policy=[ApprovalPolicyRule(tool_pattern=r"^dangerous$", timeout_seconds=2.0)],
         transport=t,
+        enabled=True,
     )
     request = _Req("dangerous", {})
 
@@ -303,6 +309,7 @@ async def test_awrap_does_not_block_event_loop():
     mw = HITLApprovalMiddleware(
         policy=[ApprovalPolicyRule(tool_pattern=r"^dangerous$", timeout_seconds=2.0)],
         transport=transport,
+        enabled=True,
     )
     request = _Req("dangerous", {})
 
@@ -367,3 +374,150 @@ def test_resolve_transport_falls_back_to_env(tmp_path: Path, monkeypatch):
     mw = HITLApprovalMiddleware(policy=[], transport=None)
     transport = mw._resolve_transport(_Req("x", {}))
     assert transport._requests_path == tmp_path / "approvals" / "requests.jsonl"
+
+
+# ------------------------------------------------- per-run enable/disable
+
+
+_DANGEROUS_POLICY = [ApprovalPolicyRule(tool_pattern=r"^dangerous$", timeout_seconds=2.0)]
+
+
+def _approve_next(t: InProcessApprovalTransport, delay: float = 0.1) -> None:
+    """Background thread: wait for the pending request, then allow it."""
+
+    def _approve():
+        time.sleep(delay)
+        pending = t.pending()
+        assert pending, "expected a submitted approval request"
+        t.provide_decision(ApprovalDecision(request_id=pending[0].request_id, action="allow"))
+
+    threading.Thread(target=_approve, daemon=True).start()
+
+
+def test_gate_off_by_default_passes_through_without_transport(monkeypatch):
+    """No env flag and no state → the tool call never reaches the transport."""
+    monkeypatch.delenv("DECEPTICON_HITL__ENABLED", raising=False)
+    t = InProcessApprovalTransport()
+    mw = HITLApprovalMiddleware(policy=_DANGEROUS_POLICY, transport=t)
+    assert mw._enabled_default is False
+    result = mw.wrap_tool_call(_Req("dangerous", {}), _allow_handler)
+    assert result.content == "executed"
+    assert t.pending() == []
+
+
+@pytest.mark.parametrize("flag", ["1", "true", "yes", "on", " TRUE "])
+def test_constructor_default_reads_truthy_env(monkeypatch, flag):
+    monkeypatch.setenv("DECEPTICON_HITL__ENABLED", flag)
+    mw = HITLApprovalMiddleware(policy=[], transport=None)
+    assert mw._enabled_default is True
+    assert mw._enabled(_Req("x", {})) is True
+
+
+@pytest.mark.parametrize("flag", ["", "0", "false", "no", "off", "maybe", "2"])
+def test_constructor_default_rejects_non_truthy_env(monkeypatch, flag):
+    monkeypatch.setenv("DECEPTICON_HITL__ENABLED", flag)
+    mw = HITLApprovalMiddleware(policy=[], transport=None)
+    assert mw._enabled_default is False
+    assert mw._enabled(_Req("x", {})) is False
+
+
+def test_run_state_turns_gate_on_when_env_unset(monkeypatch):
+    """A run can raise the posture: state ``hitl_enabled=True`` gates a tool
+    call even though the deployment default is off."""
+    monkeypatch.delenv("DECEPTICON_HITL__ENABLED", raising=False)
+    t = InProcessApprovalTransport()
+    mw = HITLApprovalMiddleware(policy=_DANGEROUS_POLICY, transport=t)
+    request = _Req("dangerous", {}, state={"hitl_enabled": True})
+    assert mw._enabled(request) is True
+
+    _approve_next(t)
+    result = mw.wrap_tool_call(request, _allow_handler)
+    assert result.content == "executed"
+    assert len(t.pending()) == 1
+
+
+@pytest.mark.asyncio
+async def test_run_state_turns_gate_on_for_async_path(monkeypatch):
+    monkeypatch.delenv("DECEPTICON_HITL__ENABLED", raising=False)
+    t = InProcessApprovalTransport()
+    mw = HITLApprovalMiddleware(policy=_DANGEROUS_POLICY, transport=t)
+    request = _Req("dangerous", {}, state={"hitl_enabled": True})
+
+    async def _async_handler(req):
+        return ToolMessage(content="async-ok", tool_call_id=req.tool_call_id, name=req.tool.name)
+
+    _approve_next(t, delay=0.05)
+    result = await mw.awrap_tool_call(request, _async_handler)
+    assert result.content == "async-ok"
+    assert len(t.pending()) == 1
+
+
+def test_run_state_false_cannot_disable_an_enabled_gate(monkeypatch):
+    """The asymmetry: a run may raise the posture, never lower it.
+
+    ``hitl_enabled=False`` in state must NOT switch off a gate the
+    deployment enabled — an automated caller controls run input, and a
+    safety control must not be clearable by the thing it constrains."""
+    monkeypatch.delenv("DECEPTICON_HITL__ENABLED", raising=False)
+    t = InProcessApprovalTransport()
+    mw = HITLApprovalMiddleware(policy=_DANGEROUS_POLICY, transport=t, enabled=True)
+    request = _Req("dangerous", {}, state={"hitl_enabled": False})
+    assert mw._enabled(request) is True
+
+    _approve_next(t)
+    result = mw.wrap_tool_call(request, _allow_handler)
+    assert result.content == "executed"
+    assert len(t.pending()) == 1
+
+
+def test_run_state_env_enabled_gate_ignores_state_false(monkeypatch):
+    """Same asymmetry when the deployment default comes from the env flag."""
+    monkeypatch.setenv("DECEPTICON_HITL__ENABLED", "1")
+    t = InProcessApprovalTransport()
+    mw = HITLApprovalMiddleware(policy=_DANGEROUS_POLICY, transport=t)
+    assert mw._enabled(_Req("dangerous", {}, state={"hitl_enabled": False})) is True
+
+
+def test_non_bool_state_is_ignored(monkeypatch):
+    """Truthy-but-not-``True`` state does not silently enable the gate."""
+    monkeypatch.delenv("DECEPTICON_HITL__ENABLED", raising=False)
+    mw = HITLApprovalMiddleware(policy=_DANGEROUS_POLICY, transport=InProcessApprovalTransport())
+    for raw in (1, "true", "1", [], "yes"):
+        assert mw._enabled(_Req("dangerous", {}, state={"hitl_enabled": raw})) is False
+
+
+def test_disabled_gate_never_resolves_transport(monkeypatch):
+    """Off → no filesystem touch: ``_resolve_transport`` is never reached."""
+    monkeypatch.delenv("DECEPTICON_HITL__ENABLED", raising=False)
+    mw = HITLApprovalMiddleware(policy=_DANGEROUS_POLICY, transport=None)
+    called: list[int] = []
+    original = mw._resolve_transport
+
+    def _spy(request):
+        called.append(1)
+        return original(request)
+
+    monkeypatch.setattr(mw, "_resolve_transport", _spy)
+    result = mw.wrap_tool_call(_Req("dangerous", {}), _allow_handler)
+    assert result.content == "executed"
+    assert called == []
+
+
+@pytest.mark.asyncio
+async def test_disabled_gate_never_resolves_transport_async(monkeypatch):
+    monkeypatch.delenv("DECEPTICON_HITL__ENABLED", raising=False)
+    mw = HITLApprovalMiddleware(policy=_DANGEROUS_POLICY, transport=None)
+    called: list[int] = []
+
+    def _spy(request):
+        called.append(1)
+        raise AssertionError("transport must not be resolved for a disabled gate")
+
+    monkeypatch.setattr(mw, "_resolve_transport", _spy)
+
+    async def _async_handler(req):
+        return ToolMessage(content="async-ok", tool_call_id=req.tool_call_id, name=req.tool.name)
+
+    result = await mw.awrap_tool_call(_Req("dangerous", {}), _async_handler)
+    assert result.content == "async-ok"
+    assert called == []

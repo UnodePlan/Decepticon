@@ -108,7 +108,7 @@ def create_verifier_agent(
             ``make_agent_backend(build_sandbox_backend())``.
         llm: bound chat model. Defaults to
             ``LLMFactory().get_model("verifier")``.
-        fallback_models: passed to ``ModelFallbackMiddleware``. Defaults
+        fallback_models: passed to the ``model-fallback`` slot. Defaults
             to ``LLMFactory().get_fallback_models("verifier")``.
         sandbox: sandbox backend for bash execution and
             ``SandboxNotificationMiddleware``. Defaults to

@@ -359,8 +359,9 @@ def build_middleware(
         backend: deepagents-style filesystem backend (the result of
             ``make_agent_backend`` — usually ``CompositeBackend``).
         llm: bound language model for summarization + per-slot use.
-        fallback_models: list passed to ``ModelFallbackMiddleware``;
-            empty / None skips the MODEL_FALLBACK slot.
+        fallback_models: list passed to
+            ``OverrideRespectingModelFallbackMiddleware``; empty / None skips
+            the MODEL_FALLBACK slot.
         sandbox: the underlying ``HTTPSandbox`` instance — required for
             the SANDBOX_NOTIFICATION slot if the role uses it.
         subagents: list of ``CompiledSubAgent`` instances for the

@@ -643,6 +643,20 @@ _LMSTUDIO_DEFAULT_MODEL = "qwen2.5-coder-7b-instruct"
 _LLAMACPP_DEFAULT_MODEL = "qwen2.5-coder-7b-instruct-q4_k_m"
 _CUSTOM_OPENAI_DEFAULT_MODEL = "gpt-4o-mini"
 
+# Placeholder detection for the one env-var credential signal this module
+# reads (the Ollama Cloud key). Mirrors ``decepticon.llm.factory``'s
+# ``_PLACEHOLDER_TOKENS`` / ``_KEY_MIN_LENGTH``; duplicated because the
+# contract layer must not import the framework.
+_PLACEHOLDER_KEY_TOKENS: tuple[str, ...] = (
+    "placeholder",
+    "not-used",
+    "not_used",
+    "dummy",
+    "fake",
+    "example",
+)
+_PLACEHOLDER_KEY_MIN_LENGTH = 24
+
 
 def _resolve_ollama_model() -> str | None:
     """Return the LiteLLM model id for the user's local Ollama, or None.
@@ -668,6 +682,31 @@ def _resolve_ollama_model() -> str | None:
     return f"ollama_chat/{model}"
 
 
+def _is_placeholder_key(value: str) -> bool:
+    """Return True when ``value`` is empty or an obvious credential placeholder.
+
+    The launcher's onboard wizard writes template values such as
+    ``your-ollama-cloud-key-here`` into ``.env`` before the user has a real
+    credential. Those must count as "not set", or a deployment that never
+    wired Ollama Cloud silently runs every model call against it.
+
+    Mirrors the framework's ``decepticon.llm.factory._is_real_key`` rules for
+    the one signal this module reads. ``decepticon-core`` is the contract
+    layer and must not import the framework, so the rule is duplicated here
+    rather than imported — keep the two in sync.
+    """
+    v = value.strip()
+    if not v:
+        return True
+    lower = v.lower()
+    return (
+        len(v) < _PLACEHOLDER_KEY_MIN_LENGTH
+        or lower.startswith("your-")
+        or lower.endswith("-key-here")
+        or any(token in lower for token in _PLACEHOLDER_KEY_TOKENS)
+    )
+
+
 def _resolve_ollama_cloud_model() -> str | None:
     """Return the LiteLLM model id for the user's Ollama Cloud, or None.
 
@@ -676,6 +715,11 @@ def _resolve_ollama_cloud_model() -> str | None:
     the environment. Falls back to ``_OLLAMA_CLOUD_DEFAULT_MODEL`` when
     the base URL is set but no model is specified. Returns None when no
     cloud endpoint is configured at all.
+
+    A placeholder key alone is NOT an endpoint — it is treated as unset so
+    this resolver agrees with the framework's ``_ollama_cloud_configured``
+    gate (a divergence here would put ``ollama_cloud/…`` in a chain the
+    detector already dropped). Base and model remain explicit opt-ins.
 
     The key is read from ``OLLAMA_CLOUD_API_KEY`` first (what the onboard
     wizard and setup docs write), falling back to ``OLLAMA_API_KEY`` (the
@@ -690,6 +734,8 @@ def _resolve_ollama_cloud_model() -> str | None:
     base = os.getenv("OLLAMA_CLOUD_API_BASE", "").strip()
     key = os.getenv("OLLAMA_CLOUD_API_KEY", "").strip() or os.getenv("OLLAMA_API_KEY", "").strip()
     model = os.getenv("OLLAMA_CLOUD_MODEL", "").strip()
+    if _is_placeholder_key(key):
+        key = ""
     if not base and not key and not model:
         return None
     if not model:
@@ -837,8 +883,9 @@ class ModelAssignment(BaseModel):
 
     ``fallbacks`` mirrors the credentials priority list past the
     primary: every method the user configured below the first one
-    appears here, in order. langchain's ``ModelFallbackMiddleware``
-    walks these in sequence on primary failure.
+    appears here, in order. The MODEL_FALLBACK slot walks these in
+    sequence on primary failure (``OverrideRespectingModelFallbackMiddleware``),
+    except while a run pins an explicit model override.
     """
 
     primary: str

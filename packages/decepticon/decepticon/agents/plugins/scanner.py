@@ -115,7 +115,7 @@ def create_scanner_agent(
             ``make_agent_backend(build_sandbox_backend())``.
         llm: bound chat model. Defaults to
             ``LLMFactory().get_model("scanner")``.
-        fallback_models: passed to ``ModelFallbackMiddleware``. Defaults
+        fallback_models: passed to the ``model-fallback`` slot. Defaults
             to ``LLMFactory().get_fallback_models("scanner")``.
         sandbox: sandbox backend for bash execution and
             ``SandboxNotificationMiddleware``. Defaults to

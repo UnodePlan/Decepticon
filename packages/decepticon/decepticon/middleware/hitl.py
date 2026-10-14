@@ -44,6 +44,15 @@ On a matching tool call, the middleware:
    - ``redirect``: pass through the operator-supplied replacement args.
    - ``timeout`` (no response): default to ``deny`` for safety.
 
+Enabling
+--------
+Off unless switched on: the deployment default comes from
+``DECEPTICON_HITL__ENABLED`` (truthy spellings ``1``/``true``/``yes``/``on``)
+or the ``enabled`` constructor argument, and a run may switch the gate on
+via ``request.state['hitl_enabled'] = True``. A run cannot switch it off —
+state ``False``/absent falls back to the deployment default. See
+:class:`HITLApprovalMiddleware` for why the asymmetry is deliberate.
+
 Stack ordering
 --------------
 Place above SafeCommand so RoE refusals still fire after operator
@@ -75,6 +84,16 @@ from langgraph.types import Command
 from typing_extensions import override
 
 log = logging.getLogger(__name__)
+
+# Truthy spellings of DECEPTICON_HITL__ENABLED. Anything else — unset,
+# empty, "0"/"false"/"no"/"off", or a typo — leaves the gate off, which is
+# what keeps autonomous engagements from freezing on a missing operator.
+_HITL_TRUTHY: frozenset[str] = frozenset({"1", "true", "yes", "on"})
+
+
+def _env_enabled_default() -> bool:
+    """Deployment-wide default for the approval gate, from the env flag."""
+    return os.environ.get("DECEPTICON_HITL__ENABLED", "").strip().lower() in _HITL_TRUTHY
 
 
 @dataclass
@@ -301,6 +320,30 @@ class HITLApprovalMiddleware(AgentMiddleware):
     ``approval_decision`` records share the same file, matched by
     ``kind`` and ``request_id``. The transport contract here does not
     change; only its implementation does.
+
+    Enabling
+    --------
+    The gate is a no-op unless it is on, so a default deployment never
+    freezes waiting for an operator. Two sources, deliberately asymmetric:
+
+    - the deployment default — the ``enabled`` constructor argument, or
+      ``DECEPTICON_HITL__ENABLED`` when it is not passed;
+    - the per-run switch — ``request.state['hitl_enabled']``.
+
+    A run may only RAISE the posture: state counts when it is exactly
+    ``True``, and a ``False``/absent state falls back to the deployment
+    default. That asymmetry is intentional — the state channel reaches the
+    agent through run input, which an automated caller (or a compromised
+    orchestration layer) controls. Letting it clear an
+    operator-mandated approval gate would turn a safety control into a
+    request from the thing it constrains. Turning the gate on per run is
+    an operator convenience; turning it off is an operational decision
+    that belongs with the deployment, not with the run.
+
+    When the gate is off, both ``wrap_tool_call`` and ``awrap_tool_call``
+    hand straight to the inner handler — before policy matching and before
+    transport resolution — so a disabled gate neither costs anything nor
+    can touch the filesystem.
     """
 
     def __init__(
@@ -310,6 +353,7 @@ class HITLApprovalMiddleware(AgentMiddleware):
         *,
         engagement_name: str = "",
         agent_name: str = "",
+        enabled: bool | None = None,
     ) -> None:
         super().__init__()
         self._policy = policy
@@ -321,6 +365,19 @@ class HITLApprovalMiddleware(AgentMiddleware):
         self._transport_cache: dict[str, ApprovalTransport] = {}
         self._engagement_name = engagement_name
         self._agent_name = agent_name
+        self._enabled_default = _env_enabled_default() if enabled is None else enabled
+
+    def _enabled(self, request: Any) -> bool:
+        """Whether the gate is active for this request.
+
+        State counts only when it is exactly ``True`` (see the class
+        docstring): a run can switch the gate on, never off. Non-bool
+        state (``1``, ``"true"``, junk) is ignored rather than coerced, so
+        nothing on the wire can flip a safety control by accident.
+        """
+        state = getattr(request, "state", None) or {}
+        get = state.get if hasattr(state, "get") else (lambda _k, _d=None: None)
+        return get("hitl_enabled") is True or self._enabled_default
 
     def _resolve_transport(self, request: Any) -> ApprovalTransport:
         if self._transport is not None:
@@ -453,6 +510,11 @@ class HITLApprovalMiddleware(AgentMiddleware):
 
     @override
     def wrap_tool_call(self, request, handler) -> ToolMessage | Command:
+        # Disabled → pass through before policy matching and before any
+        # transport resolution, so an off gate costs one state lookup and
+        # never touches the filesystem.
+        if not self._enabled(request):
+            return handler(request)
         tool = getattr(request, "tool", None)
         tool_name = getattr(tool, "name", "") if tool else ""
         tool_args = getattr(request, "tool_call_args", {}) or {}
@@ -467,6 +529,10 @@ class HITLApprovalMiddleware(AgentMiddleware):
 
     @override
     async def awrap_tool_call(self, request, handler) -> ToolMessage | Command:
+        # Same short-circuit as the sync path: a disabled gate returns the
+        # handler's coroutine untouched, without an await round-trip.
+        if not self._enabled(request):
+            return await handler(request)
         tool = getattr(request, "tool", None)
         tool_name = getattr(tool, "name", "") if tool else ""
         tool_args = getattr(request, "tool_call_args", {}) or {}

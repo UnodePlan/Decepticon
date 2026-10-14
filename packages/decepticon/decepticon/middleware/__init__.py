@@ -23,6 +23,12 @@ from decepticon.middleware.hitl import (
     InProcessApprovalTransport,
 )
 from decepticon.middleware.kg import KGMiddleware
+from decepticon.middleware.model_override import (
+    ModelOverrideMiddleware,
+    ModelOverridesState,
+    ModelOverrideUnavailableError,
+    OverrideRespectingModelFallbackMiddleware,
+)
 from decepticon.middleware.notifications import (
     SandboxNotificationMiddleware,
 )
@@ -72,6 +78,10 @@ __all__ = [
     "BudgetPauseManager",
     "BudgetPolicy",
     "ModelCapabilities",
+    "ModelOverrideMiddleware",
+    "ModelOverrideUnavailableError",
+    "ModelOverridesState",
+    "OverrideRespectingModelFallbackMiddleware",
     "coerce_nullish",
     "coerce_json_string",
     "handle_hallucinated_tool",

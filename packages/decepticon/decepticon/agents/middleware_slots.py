@@ -34,7 +34,7 @@ from typing import Any
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
 from deepagents.middleware.subagents import SubAgentMiddleware
 from deepagents.middleware.summarization import create_summarization_middleware
-from langchain.agents.middleware import AgentMiddleware, ModelFallbackMiddleware
+from langchain.agents.middleware import AgentMiddleware
 from langchain_anthropic.middleware import AnthropicPromptCachingMiddleware
 
 from decepticon.agents._benchmark_mode import benchmark_skill_sources
@@ -53,7 +53,10 @@ from decepticon.middleware.hitl import (
     DEFAULT_HIGH_IMPACT_POLICY,
     HITLApprovalMiddleware,
 )
-from decepticon.middleware.model_override import ModelOverrideMiddleware
+from decepticon.middleware.model_override import (
+    ModelOverrideMiddleware,
+    OverrideRespectingModelFallbackMiddleware,
+)
 from decepticon.middleware.notifications import SandboxNotificationMiddleware
 from decepticon.middleware.opscontrol_notifications import (
     OpsControlNotificationMiddleware,
@@ -247,16 +250,23 @@ def _make_proxy_key_override(**_: Any):
     return ProxyKeyOverrideMiddleware()
 
 
-def _make_model_fallback(*, fallback_models: list | None = None, **_: Any):
+def _make_model_fallback(*, fallback_models: list | None = None, role: str | None = None, **_: Any):
     """Conditional slot — returns None when no fallback chain exists.
 
     ``build_middleware`` filters None results out so the absent
     fallback simply skips the slot, mirroring the legacy
     ``if fallback_models: middleware.append(...)`` branch.
+
+    Uses ``OverrideRespectingModelFallbackMiddleware`` rather than langchain's:
+    while a run pins a model override (``/model``, a per-role
+    ``model_overrides`` entry, a saved custom channel), the chain is skipped so
+    a failing override reports its own provider error instead of being retried
+    against a vendor the operator never selected. ``role`` is threaded through
+    so a per-role map is honoured exactly as the override middleware reads it.
     """
     if not fallback_models:
         return None
-    return ModelFallbackMiddleware(*fallback_models)
+    return OverrideRespectingModelFallbackMiddleware(*fallback_models, role=role)
 
 
 class _SafeSummarizationProxy(AgentMiddleware):
@@ -364,26 +374,28 @@ def _make_prompt_injection_shield(**_: Any):
     return PromptInjectionShieldMiddleware(append_policy_to_system=False)
 
 
-# Falsy spellings of DECEPTICON_HITL__ENABLED — anything else enables HITL.
-_HITL_FALSY: frozenset[str] = frozenset({"", "0", "false", "no", "off"})
-
-
 def _make_hitl(*, role: str, **_: Any):
-    """Operator-approval gate — opt-in via ``DECEPTICON_HITL__ENABLED``.
+    """Operator-approval gate — always present, per-run switchable.
 
-    Returns None (slot skipped) unless the env flag is truthy, so default
-    engagements never freeze waiting on a human. The transport is left
-    unset (``transport=None``) so HITLApprovalMiddleware resolves it
-    per request from ``request.state['workspace_path']`` — standard graphs
-    are built once at import but a long-lived server serves many
-    engagements, so the workspace can't be bound at build time. The
-    resolved transport writes ``<workspace>/approvals/{requests,
-    decisions}.jsonl`` — a contract shared with the web bridge.
+    The middleware is built into every role's stack and gates itself: with
+    ``enabled=None`` it resolves its default from
+    ``DECEPTICON_HITL__ENABLED`` and, when off, short-circuits both tool-call
+    paths before policy matching (see
+    :class:`HITLApprovalMiddleware`). A run can raise the posture via
+    ``hitl_enabled`` in its state; it cannot lower it. Building the slot
+    unconditionally — instead of skipping it when the env flag is falsy —
+    keeps the stack shape stable across deployments and lets a per-run
+    request turn the gate on without a rebuild.
+
+    The transport is left unset (``transport=None``) so
+    HITLApprovalMiddleware resolves it per request from
+    ``request.state['workspace_path']`` — standard graphs are built once at
+    import but a long-lived server serves many engagements, so the workspace
+    can't be bound at build time. The resolved transport writes
+    ``<workspace>/approvals/{requests,decisions}.jsonl`` — a contract shared
+    with the web bridge.
     """
     import os
-
-    if os.environ.get("DECEPTICON_HITL__ENABLED", "").strip().lower() in _HITL_FALSY:
-        return None
 
     eid = os.environ.get("DECEPTICON_ENGAGEMENT_ID", "default-engagement")
     return HITLApprovalMiddleware(

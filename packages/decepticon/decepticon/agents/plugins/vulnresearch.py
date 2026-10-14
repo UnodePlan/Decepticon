@@ -104,7 +104,7 @@ def create_vulnresearch_agent(
             ``make_agent_backend(build_sandbox_backend())``.
         llm: bound chat model. Defaults to
             ``LLMFactory().get_model("vulnresearch")``.
-        fallback_models: passed to ``ModelFallbackMiddleware``. Defaults
+        fallback_models: passed to the ``model-fallback`` slot. Defaults
             to ``LLMFactory().get_fallback_models("vulnresearch")``.
         subagents: explicit sub-agent list. When ``None`` (default),
             sub-agents are discovered via ``load_subagents_for_parent``
