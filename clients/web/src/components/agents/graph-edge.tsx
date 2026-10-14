@@ -4,11 +4,22 @@
  * GraphEdgeComponent — SVG edge with octogent-style activity dots.
  *
  * Active edges show 3 staggered dot pairs flowing along a Bezier path:
- * - Trail dots: blurred glow with warm drop-shadows
+ * - Trail dots: coloured halo behind the core
  * - Core dots: bright cream (#fff4cc) with colored border
  * - Stagger: 0.62s between each dot pair
  * - Duration: 1.9s per traversal
+ *
+ * The dots follow the path with SMIL `<animateMotion>`, which means the browser
+ * re-rasterizes them every frame for as long as the edge is active. They
+ * therefore carry no `filter` (a blur + drop-shadow chain here used to run a
+ * full Gaussian pass per dot per frame) and the trail's soft edge is faked with
+ * a larger radius at low opacity instead.
+ *
+ * Memoized: an edge is re-rendered per simulation tick and per streamed event,
+ * but its appearance is fully described by its primitive props.
  */
+
+import { memo } from "react";
 
 const DOT_INDICES = [0, 1, 2] as const;
 const DURATION = 1.9;
@@ -26,7 +37,7 @@ interface GraphEdgeProps {
   targetRadius?: number;
 }
 
-export function GraphEdgeComponent({
+function GraphEdgeComponentImpl({
   sourceX,
   sourceY,
   targetX,
@@ -69,7 +80,6 @@ export function GraphEdgeComponent({
 
       {active && DOT_INDICES.map((i) => {
         const begin = `${i * STAGGER}s`;
-        const trailOpacity = [0.28, 0.24, 0.20][i];
         const coreOpacity = [1.0, 0.92, 0.84][i];
 
         return (
@@ -77,7 +87,7 @@ export function GraphEdgeComponent({
             <circle
               r={3.8}
               fill={color}
-              opacity={trailOpacity}
+              opacity={0.35}
               className="canvas-edge-dot-trail"
             >
               <animateMotion dur={`${DURATION}s`} repeatCount="indefinite" begin={begin}>
@@ -117,3 +127,11 @@ export function GraphEdgeComponent({
     </g>
   );
 }
+
+/**
+ * Memoized wrapper. Every prop is a primitive, so a shallow compare is exact:
+ * an edge re-renders only when one of its endpoints actually moved.
+ */
+export const GraphEdgeComponent = memo(function GraphEdgeComponent(props: GraphEdgeProps) {
+  return GraphEdgeComponentImpl(props);
+});

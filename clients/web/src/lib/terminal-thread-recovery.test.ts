@@ -70,11 +70,20 @@ function server(options: {
       };
     } },
     resolve, dirname, join, fileURLToPath, createHash,
+    // The harness strips the server's imports; the node-pty spawn-helper probe
+    // runs at module scope, so it is stubbed here (this suite drives no PTY
+    // spawn path, and the real probe would touch the installed tree).
+    ensurePtySpawnHelper: () => ({ status: "not-needed" }),
     readFile: async () => {
       if (options.scope) return options.scope;
       throw new Error("No approval documents");
     },
     fetch: async (url: string, request: Request = {}) => {
+      // The saved-model-policy read before each PTY spawn is answered here so
+      // the thread-recovery step list stays exactly the steps under test.
+      if (url.endsWith("/api/settings")) {
+        return { status: 200, ok: true, json: async () => ({}) };
+      }
       calls.push({ url, method: request.method ?? "GET", body: request.body });
       if (request.method === "PATCH") return response(200);
       return options.fetch ? options.fetch(url, request) : response(200);

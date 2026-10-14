@@ -13,12 +13,13 @@
  * - Pan/zoom via mouse
  */
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Maximize2 } from "lucide-react";
 import type { AgentConfig } from "@/lib/agents";
 import type { SubagentCustomEvent } from "@decepticon/streaming";
 import type { GraphNode } from "@/lib/graph/types";
 import { isWaitingState } from "@/lib/graph/types";
+import { useEngagementContext } from "@/lib/engagement-context";
 import { useForceSimulation } from "@/hooks/useForceSimulation";
 import { useCanvasTransform } from "@/hooks/useCanvasTransform";
 import { useAgentActivity } from "@/hooks/useAgentActivity";
@@ -26,6 +27,7 @@ import { AgentNode } from "./agent-node";
 import { SessionNode } from "./session-node";
 import { GraphEdgeComponent } from "./graph-edge";
 import "@/styles/canvas-graph.css";
+import { useI18n } from "@/lib/i18n-context";
 
 interface AgentGraphCanvasProps {
   agents: AgentConfig[];
@@ -40,15 +42,35 @@ export function AgentGraphCanvas({
   selectedAgent,
   onAgentClick,
 }: AgentGraphCanvasProps) {
+  const { t } = useI18n();
   const containerRef = useRef<SVGSVGElement>(null);
   const hasFitted = useRef(false);
+
+  // The canvas lives inside the engagement layout and keeps its state across
+  // tab switches, so it must decide for itself when "live" work is warranted:
+  //
+  //  - `isRunning` is false between runs. The graph then holds a static layout
+  //    and the activity ring/animated edges are gone (see useAgentActivity), so
+  //    the physics loop and every per-frame repaint stop with them.
+  //  - hidden documents still get animation frames; without this check the
+  //    simulation keeps re-rendering the whole SVG in a background tab.
+  const { isRunning } = useEngagementContext();
+  const [documentVisible, setDocumentVisible] = useState(true);
+  useEffect(() => {
+    const onVisibilityChange = () => setDocumentVisible(document.visibilityState !== "hidden");
+    onVisibilityChange();
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, []);
+  const graphActive = isRunning && documentVisible;
 
   const { nodes, edges } = useAgentActivity({
     agents,
     events,
+    activeRun: graphActive,
   });
 
-  const { positions, pinNode } = useForceSimulation({ nodes, edges });
+  const { positions, pinNode } = useForceSimulation({ nodes, edges, running: graphActive });
   const {
     transformAttr,
     onWheel,
@@ -153,6 +175,13 @@ export function AgentGraphCanvas({
     return () => { dragCleanupRef.current?.(); };
   }, []);
 
+  const agentsRef = useRef(agents);
+  agentsRef.current = agents;
+  const onAgentClickRef = useRef(onAgentClick);
+  onAgentClickRef.current = onAgentClick;
+  const nodeByIdRef = useRef(nodeById);
+  nodeByIdRef.current = nodeById;
+
   const handleNodeDragStart = useCallback((node: GraphNode, e: React.MouseEvent) => {
     const currentPos = positionsRef.current.get(node.id);
     if (!currentPos) return;
@@ -199,10 +228,10 @@ export function AgentGraphCanvas({
       dragCleanupRef.current = null;
 
       if (!wasDrag && nodeId) {
-        const clickedNode = nodeById.get(nodeId);
+        const clickedNode = nodeByIdRef.current.get(nodeId);
         if (clickedNode) {
-          const agent = agents.find((a) => a.id === clickedNode.agentId);
-          if (agent) onAgentClick(agent);
+          const agent = agentsRef.current.find((a) => a.id === clickedNode.agentId);
+          if (agent) onAgentClickRef.current(agent);
         }
       }
     };
@@ -210,7 +239,7 @@ export function AgentGraphCanvas({
     window.addEventListener("mousemove", handleDragMove);
     window.addEventListener("mouseup", handleDragEnd);
     dragCleanupRef.current = handleDragEnd;
-  }, [pinNode, nodeById, agents, onAgentClick]);
+  }, [pinNode]);
 
   const handleNodeClick = useCallback((node: GraphNode) => {
     const agent = agents.find((a) => a.id === node.agentId);
@@ -229,7 +258,7 @@ export function AgentGraphCanvas({
         <button
           className="canvas-toolbar-btn"
           onClick={handleFit}
-          title="Fit to view"
+          title={t("agentGraph.fit")}
         >
           <Maximize2 className="h-4 w-4" />
         </button>
@@ -244,9 +273,12 @@ export function AgentGraphCanvas({
               onClick={() => handleNodeClick(node)}
             >
               <span className="canvas-waiting-bar-prefix">
-                {node.runtimeState === "waiting_for_permission"
-                  ? `${node.waitingToolName ?? "PERMISSION"}: `
-                  : "Waiting: "}
+                {t("agentGraph.waitingPrefix", {
+                  tool:
+                    node.runtimeState === "waiting_for_permission"
+                      ? node.waitingToolName ?? t("agentGraph.permission")
+                      : t("agentGraph.waiting"),
+                })}
               </span>
               {node.label}
             </button>
@@ -260,13 +292,6 @@ export function AgentGraphCanvas({
         style={{ cursor: isPanning ? "grabbing" : "grab" }}
         onMouseDown={onPanStart}
       >
-        <defs>
-          <radialGradient id="nodeInnerGlow">
-            <stop offset="0%" stopColor="white" stopOpacity={0.15} />
-            <stop offset="100%" stopColor="white" stopOpacity={0} />
-          </radialGradient>
-        </defs>
-
         <g transform={transformAttr}>
           {edges.map((edge) => {
             const sourcePos = positions.get(edge.source);

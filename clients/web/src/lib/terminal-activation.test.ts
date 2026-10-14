@@ -40,6 +40,7 @@ test("Live activation is lazy, survives tab history, and retains only visited mo
     "@/hooks/useRunObserver": { useRunObserver: () => ({ events: [], isRunning: running, activeRunId: null }) },
     "@/components/terminal/web-terminal": { WebTerminal: Terminal },
     "@/lib/utils": { cn: (...values: string[]) => values.join(" ") },
+    "@/lib/i18n-context": { useI18n: () => ({ locale: "en", setLocale: () => {}, t: (key: string) => key }) },
   };
   const source = readFileSync(new URL("../app/(dashboard)/engagements/[id]/layout.tsx", import.meta.url), "utf8");
   const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } }).outputText;

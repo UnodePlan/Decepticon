@@ -84,8 +84,10 @@ docker exec -u 0 "$CONTAINER" rm -rf /app/clients/web/.next
 # Static assets (not in standalone)
 (cd "$WEB_DIR" && tar cf - .next/static) | docker exec -u 0 -i "$CONTAINER" tar xf - -C /app/clients/web/
 
-# Terminal server
+# Terminal server (+ the session-token module it imports)
 docker cp "$WEB_DIR/server/terminal-server.ts" "$CONTAINER:/app/clients/web/server/terminal-server.ts"
+docker exec -u 0 "$CONTAINER" mkdir -p /app/clients/web/src/lib
+docker cp "$WEB_DIR/src/lib/session.ts" "$CONTAINER:/app/clients/web/src/lib/session.ts"
 
 # server.js (standalone entry point)
 docker cp "$STANDALONE/server.js" "$CONTAINER:/app/clients/web/server.js"
@@ -94,7 +96,8 @@ docker cp "$STANDALONE/server.js" "$CONTAINER:/app/clients/web/server.js"
 docker exec -u 0 "$CONTAINER" chown -R nextjs:nodejs \
     /app/clients/web/.next \
     /app/clients/web/server.js \
-    /app/clients/web/server/terminal-server.ts
+    /app/clients/web/server/terminal-server.ts \
+    /app/clients/web/src/lib/session.ts
 
 INJECT_END=$(date +%s)
 dim "Inject completed in $((INJECT_END - BUILD_END))s"
@@ -130,7 +133,9 @@ END=$(date +%s)
 
 # ── Verify ────────────────────────────────────────────────────────
 
-HTTP_CODE=$(curl -s -m 5 -o /dev/null -w "%{http_code}" http://localhost:3000/ 2>/dev/null || echo "000")
+# Follow redirects: an unauthenticated "/" answers 307 → /login (200), so the
+# probe reports the real reachability of the dashboard instead of the guard.
+HTTP_CODE=$(curl -sL -m 5 -o /dev/null -w "%{http_code}" http://localhost:3000/ 2>/dev/null || echo "000")
 if [[ "$HTTP_CODE" == "200" ]]; then
     info "Done in $((END - START))s — http://localhost:3000 (HTTP $HTTP_CODE)"
 else

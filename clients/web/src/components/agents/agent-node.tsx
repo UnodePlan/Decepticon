@@ -5,14 +5,26 @@
  *
  * - Orchestrator (Decepticon): Custom image
  * - Sub-agents: Initial avatar circle with agent color
- * - Active state: Pulse animation on border
+ * - Active state: Activity ring (transform/opacity only — see canvas-graph.css)
  * - Completed: Checkmark badge
+ *
+ * Memoized: the canvas re-renders on every simulation tick and every streamed
+ * event, but a node's appearance only depends on these primitives. Without the
+ * comparison every one of those renders rebuilt every node's subtree, including
+ * its SMIL/glow children.
  */
 
+import { memo } from "react";
 import type { GraphNode } from "@/lib/graph/types";
 import { isWaitingState } from "@/lib/graph/types";
 
 const AMBER = "#f59e0b";
+const RING_COLORS = {
+  processing: { stroke: "#22d3ee", className: "canvas-ring canvas-ring-processing" },
+  waiting: { stroke: AMBER, className: "canvas-ring canvas-ring-waiting" },
+  failed: { stroke: "#ef4444", className: "canvas-ring canvas-ring-failed" },
+  completed: { stroke: "#10b981", className: "canvas-ring canvas-ring-completed" },
+} as const;
 
 interface AgentNodeProps {
   node: GraphNode;
@@ -22,7 +34,7 @@ interface AgentNodeProps {
   onDragStart?: (node: GraphNode, e: React.MouseEvent) => void;
 }
 
-export function AgentNode({ node, x, y, selected, onDragStart }: AgentNodeProps) {
+function AgentNodeComponent({ node, x, y, selected, onDragStart }: AgentNodeProps) {
   const isOrchestrator = node.type === "orchestrator";
   const { runtimeState } = node;
 
@@ -35,16 +47,15 @@ export function AgentNode({ node, x, y, selected, onDragStart }: AgentNodeProps)
 
   const color = isWaiting ? AMBER : node.color;
 
-  // State-based pulse CSS class
-  const pulseClass = isProcessing
-    ? "agent-pulse-processing"
+  const ring = isProcessing
+    ? RING_COLORS.processing
     : isWaiting
-      ? "agent-pulse-waiting"
+      ? RING_COLORS.waiting
       : isCompleted
-        ? "agent-pulse-completed"
+        ? RING_COLORS.completed
         : isFailed
-          ? "agent-pulse-failed"
-          : undefined;
+          ? RING_COLORS.failed
+          : null;
   const r = isOrchestrator ? 36 : 24;
   const initial = node.label.charAt(0).toUpperCase();
 
@@ -75,6 +86,9 @@ export function AgentNode({ node, x, y, selected, onDragStart }: AgentNodeProps)
         />
       )}
 
+      {/* Activity ring — the only animated element, and only in live states. */}
+      {ring && <circle r={r + 6} fill="none" strokeWidth={2} stroke={ring.stroke} className={ring.className} />}
+
       {isOrchestrator ? (
         <>
           {/* Orchestrator: image avatar */}
@@ -84,7 +98,6 @@ export function AgentNode({ node, x, y, selected, onDragStart }: AgentNodeProps)
             y={-r}
             width={r * 2}
             height={r * 2}
-            className={pulseClass}
             style={{ pointerEvents: "none", opacity: isIdle ? 0.5 : 1 }}
           />
         </>
@@ -96,7 +109,6 @@ export function AgentNode({ node, x, y, selected, onDragStart }: AgentNodeProps)
             fill={`${color}${isIdle ? "10" : "20"}`}
             stroke={color}
             strokeWidth={1.5}
-            className={pulseClass}
             style={{ pointerEvents: "none", opacity: isIdle ? 0.4 : 1 }}
           />
           <text
@@ -168,3 +180,5 @@ export function AgentNode({ node, x, y, selected, onDragStart }: AgentNodeProps)
     </g>
   );
 }
+
+export const AgentNode = memo(AgentNodeComponent);

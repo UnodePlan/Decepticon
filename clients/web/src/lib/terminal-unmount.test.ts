@@ -37,6 +37,8 @@ test("unmount during xterm loading does not allocate abandoned terminal resource
     "@/lib/browser-config": require("./browser-config.ts"),
     "@/lib/browser-config-context": { useBrowserConfig: () => ({ terminalWsUrl: "ws://localhost:3003" }) },
     "@/lib/utils": { cn: (...values: string[]) => values.join(" ") },
+    "@/lib/i18n-context": { useI18n: () => ({ locale: "en", setLocale: () => {}, t: (key: string) => key }) },
+    "@/lib/terminal-output-coalescer": require("./terminal-output-coalescer.ts"),
     "xterm": pendingImport,
     "@xterm/addon-fit": { FitAddon: class {} },
     "xterm/css/xterm.css": {},

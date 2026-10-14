@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Network } from "lucide-react";
 import { GraphNode } from "./graph-node";
+import { useI18n } from "@/lib/i18n-context";
 
 const nodeTypes = { custom: GraphNode };
 
@@ -27,16 +28,25 @@ interface AttackGraphCanvasProps {
   mockEdges?: Edge[];
 }
 
+/**
+ * Edge styling for the attack graph.
+ *
+ * The Neo4j graph is fetched once per engagement and never mutated in place, so
+ * `animated: true` here only bought a running `dashdraw` keyframe (stroke
+ * dashoffset, repainted every frame) on *every* edge of a potentially large
+ * graph — permanent GPU work for a static picture. Edges keep their styling and
+ * the selected-node highlight instead.
+ */
 function styleEdges(edges: Edge[]): Edge[] {
   return edges.map((e) => ({
     ...e,
-    animated: true,
     style: { stroke: "#525252" },
     labelStyle: { fill: "#a1a1aa", fontSize: 10 },
   }));
 }
 
 export function AttackGraphCanvas({ engagementId, mockNodes, mockEdges }: AttackGraphCanvasProps) {
+  const { t } = useI18n();
   const [nodes, setNodes, onNodesChange] = useNodesState(mockNodes ?? []);
   const [edges, setEdges, onEdgesChange] = useEdgesState(
     mockEdges ? styleEdges(mockEdges) : []
@@ -79,9 +89,9 @@ export function AttackGraphCanvas({ engagementId, mockNodes, mockEdges }: Attack
         <CardContent className="flex items-center justify-center py-24">
           <div className="text-center text-sm text-muted-foreground">
             <Network className="mx-auto mb-3 h-8 w-8 opacity-50" />
-            <p>No graph data available.</p>
+            <p>{t("graph.canvas.empty.title")}</p>
             <p className="mt-1 text-xs">
-              Run an engagement to populate the knowledge graph.
+              {t("graph.canvas.empty.description")}
             </p>
           </div>
         </CardContent>
@@ -126,7 +136,7 @@ export function AttackGraphCanvas({ engagementId, mockNodes, mockEdges }: Attack
           />
           <Panel position="top-left">
             <Badge variant="secondary">
-              {nodes.length} nodes / {edges.length} edges
+              {t("graph.canvas.counts", { nodes: nodes.length, edges: edges.length })}
             </Badge>
           </Panel>
         </ReactFlow>

@@ -26,6 +26,39 @@ test("unset public config retains direct localhost defaults", () => {
   });
 });
 
+test("saved endpoint overrides win over the deployment values", () => {
+  const env = {
+    NEXT_PUBLIC_LANGGRAPH_API_URL: "/langgraph",
+    NEXT_PUBLIC_TERMINAL_WS_URL: "/terminal",
+  };
+  assert.deepEqual(
+    browserConfig(env, {
+      langGraphBrowserUrl: "https://api.example.test:2024",
+      terminalBrowserUrl: "wss://term.example.test:3003",
+    }),
+    {
+      langGraphApiUrl: "https://api.example.test:2024",
+      terminalWsUrl: "wss://term.example.test:3003",
+    },
+  );
+});
+
+test("absent or blank saved endpoints keep the deployment value", () => {
+  const env = { NEXT_PUBLIC_LANGGRAPH_API_URL: "/langgraph" };
+  assert.equal(browserConfig(env).langGraphApiUrl, "/langgraph");
+  assert.equal(browserConfig(env, {}).langGraphApiUrl, "/langgraph");
+  assert.equal(browserConfig(env, { langGraphBrowserUrl: "  " }).langGraphApiUrl, "/langgraph");
+  assert.equal(browserConfig({}, { langGraphBrowserUrl: "" }).terminalWsUrl, "ws://localhost:3003");
+  assert.equal(browserConfig({}).langGraphApiUrl, "http://localhost:2024");
+});
+
+test("saved endpoints are trimmed before use", () => {
+  assert.deepEqual(browserConfig({}, { langGraphBrowserUrl: " https://api.example.test " }), {
+    langGraphApiUrl: "https://api.example.test",
+    terminalWsUrl: "ws://localhost:3003",
+  });
+});
+
 test("relative API and terminal paths follow the HTTPS dashboard origin", () => {
   assert.equal(langGraphApiUrl(location, "/langgraph"), "https://dashboard.example.test:8443/langgraph");
   assert.equal(terminalWebSocketUrl(location, "/terminal").href, "wss://dashboard.example.test:8443/terminal");

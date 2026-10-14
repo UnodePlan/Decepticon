@@ -34,6 +34,9 @@ try {
       HOSTNAME: "127.0.0.1",
       DATABASE_URL: "postgresql://PRIVATE_DATABASE_SENTINEL@db/test",
       LANGGRAPH_API_URL: "http://PRIVATE_INTERNAL_SENTINEL:2024",
+      // This script exercises browser endpoint config, not the sign-in flow:
+      // keep the dashboard routes reachable without a session.
+      DECEPTICON_AUTH_DISABLED: "true",
     };
     if (name === "default") {
       delete env.NEXT_PUBLIC_LANGGRAPH_API_URL;

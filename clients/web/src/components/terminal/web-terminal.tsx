@@ -15,15 +15,54 @@
  */
 
 import { useEffect, useRef, useCallback, useState } from "react";
+import type { Terminal } from "xterm";
+import type { FitAddon } from "@xterm/addon-fit";
 import { cn } from "@/lib/utils";
 import { terminalWebSocketUrl } from "@/lib/browser-config";
 import { useBrowserConfig } from "@/lib/browser-config-context";
+import { useI18n } from "@/lib/i18n-context";
+import type { TranslationKey } from "@/lib/i18n";
+import { TerminalWriteCoalescer, type TimerHandle } from "@/lib/terminal-output-coalescer";
 
 const MAX_RECONNECT_DELAY = 4000;
 const INITIAL_RECONNECT_DELAY = 1000;
 const MAX_RECONNECT_ATTEMPTS = 15;
 
+/**
+ * Smallest pane area worth fitting the PTY to. A drawer collapse animates the
+ * container width to 0, which leaves the padding (16px) non-zero for several
+ * frames; fitting there clamps the terminal to the 2-column minimum, resizes
+ * the PTY and makes the CLI reflow its whole frame twice (on collapse and
+ * again on expand). Skipping the fit until the pane is usable leaves the PTY
+ * untouched; the observer fires again when it regrows.
+ */
+const MIN_FIT_WIDTH_PX = 24;
+const MIN_FIT_HEIGHT_PX = 24;
+
 type ConnectionState = "connecting" | "connected" | "reconnecting" | "disconnected" | "error";
+
+/**
+ * Fit only when the pane actually has a usable area.
+ *
+ * `clientWidth` is not enough: this container keeps 8px padding, so a
+ * collapse/expand animation (width 400px → 0 → 400px) leaves ~16px of usable
+ * width for several frames. Fitting there clamps the terminal to xterm's
+ * 2-column minimum, which resizes the PTY and forces the CLI to reflow its
+ * entire frame — twice, once on collapse and again on expand — for a pane the
+ * operator is not looking at. The terminal surface rect is the honest measure;
+ * when it is too small we leave the PTY size alone and the resize observer
+ * fires again once the pane regrows.
+ */
+function fitPaneIfUsable(container: HTMLElement | null, term: Terminal | null, fit: FitAddon | null): boolean {
+  const surface = term?.element ?? container;
+  if (!surface || !surface.isConnected) return false;
+  const rect = surface.getBoundingClientRect();
+  if (rect.width < MIN_FIT_WIDTH_PX || rect.height < MIN_FIT_HEIGHT_PX) return false;
+  // The addon is injected (and stubbed by the lifecycle tests); only call a real one.
+  if (typeof fit?.fit !== "function") return false;
+  fit.fit();
+  return true;
+}
 
 /**
  * Strip parser-hostile bytes before writing to xterm.
@@ -63,6 +102,7 @@ export function WebTerminal({
   className,
   onThreadId,
 }: WebTerminalProps): React.ReactNode {
+  const { t } = useI18n();
   const config = useBrowserConfig();
   const terminalEndpointRef = useRef(config.terminalWsUrl);
   terminalEndpointRef.current = config.terminalWsUrl;
@@ -86,14 +126,24 @@ export function WebTerminal({
   const onThreadIdRef = useRef(onThreadId);
   onThreadIdRef.current = onThreadId;
 
-  const termRef = useRef<import("xterm").Terminal | null>(null);
-  const fitRef = useRef<import("@xterm/addon-fit").FitAddon | null>(null);
+  const termRef = useRef<Terminal | null>(null);
+  const fitRef = useRef<FitAddon | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptRef = useRef(0);
   const disposedRef = useRef(false);
+  // Bumped by every effect start and teardown. `init()` suspends on the dynamic
+  // `xterm` imports; a StrictMode remount runs teardown + effect again while the
+  // first `init()` is still awaiting, and that resumed call used to see
+  // `disposedRef` reset to `false` and allocate a second terminal + socket.
+  const initGenerationRef = useRef(0);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
-  const resizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resizeTimerRef = useRef<TimerHandle | null>(null);
+  const coalescerRef = useRef<TerminalWriteCoalescer | null>(null);
+  // Last PTY size we told the server about; the resize observer only sends a
+  // resize when the fitted grid actually changed.
+  const lastColsRef = useRef(0);
+  const lastRowsRef = useRef(0);
   // Track whether we've shown the reconnecting message (to avoid spam)
   const reconnectMsgShownRef = useRef(false);
   // True between sending a ping and receiving the next inbound frame; the
@@ -106,8 +156,14 @@ export function WebTerminal({
 
   const cleanup = useCallback(() => {
     disposedRef.current = true;
+    // Invalidates an `init()` still suspended on the xterm imports.
+    initGenerationRef.current += 1;
+    coalescerRef.current?.drop();
+    coalescerRef.current = null;
     if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+    reconnectTimerRef.current = null;
     if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
+    resizeTimerRef.current = null;
     retryListenerRef.current?.dispose();
     retryListenerRef.current = null;
     onDataDisposableRef.current?.dispose();
@@ -125,14 +181,26 @@ export function WebTerminal({
     const term = termRef.current;
     if (!term) return;
 
+    // A connect is already live or hand-shaking. Replacing it here is what
+    // started the reconnect loop: the superseded socket's `onclose` cannot tell
+    // "I was replaced" from "the link dropped", so it scheduled another
+    // reconnect, `onopen` reset the attempt counter, and the cycle repeated
+    // once per second forever. One connection at a time; `scheduleReconnect`
+    // clears its timer before the retry lands, so this never cancels a pending
+    // retry that still owes us a socket.
+    const currentReadyState = wsRef.current?.readyState;
+    if (currentReadyState === WebSocket.CONNECTING || currentReadyState === WebSocket.OPEN) return;
+
+    // Landing a connect cancels the timer that asked for it, so no second
+    // socket is created for the same retry.
+    if (reconnectTimerRef.current !== null) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+
     // Dispose any pending manual-retry listener
     retryListenerRef.current?.dispose();
     retryListenerRef.current = null;
-
-    // Close old WS
-    if (wsRef.current && wsRef.current.readyState !== WebSocket.CLOSED) {
-      wsRef.current.close();
-    }
 
     const eid = engagementIdRef.current;
     const slug = engagementSlugRef.current;
@@ -155,17 +223,21 @@ export function WebTerminal({
     wsRef.current = ws;
 
     ws.onopen = () => {
+      if (wsRef.current !== ws) return;
       setConnState("connected");
       reconnectAttemptRef.current = 0;
       reconnectMsgShownRef.current = false;
       // Silent reconnect — no terminal output. If the server reattaches us
       // to an existing session, the scrollback replay handles visual continuity.
       if (term.cols > 0 && term.rows > 0) {
+        lastColsRef.current = term.cols;
+        lastRowsRef.current = term.rows;
         ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
       }
     };
 
     ws.onmessage = (event) => {
+      if (wsRef.current !== ws) return;
       awaitingPongRef.current = false;
       const data = typeof event.data === "string" ? event.data : "";
       if (data.startsWith("{")) {
@@ -182,6 +254,9 @@ export function WebTerminal({
           if (msg.type === "reattached") {
             // Server reattached us to an existing PTY — full reset then
             // scrollback replay arrives as raw text right after this message.
+            // Buffered pre-reset output is invalid now; drop it so the replay
+            // is not drawn over by stale frames.
+            coalescerRef.current?.drop();
             term.reset();
             return;
           }
@@ -189,11 +264,15 @@ export function WebTerminal({
           // Not valid JSON — pass through as terminal output
         }
       }
-      term.write(sanitizeTermBytes(data));
+      coalescerRef.current?.push(sanitizeTermBytes(data));
     };
 
     ws.onclose = (ev) => {
-      if (disposedRef.current) return;
+      // A superseded socket keeps firing: `cleanup()` closing the transport on
+      // unmount, or any replacement. Ignoring its events here is what keeps a
+      // stale close from scheduling a reconnect for the live connection.
+      if (disposedRef.current || wsRef.current !== ws) return;
+      wsRef.current = null;
 
       if (ev.code === 4001) {
         // Server handed this session to another connection (e.g. a second tab).
@@ -206,6 +285,7 @@ export function WebTerminal({
       if (ev.code === 1000) {
         // Clean close — process exited normally
         setConnState("disconnected");
+        coalescerRef.current?.flush();
         term.writeln("\r\n\x1b[90m[Session ended. Press Enter to start a new session.]\x1b[0m");
         const disposable = term.onData(() => {
           disposable.dispose();
@@ -222,7 +302,7 @@ export function WebTerminal({
     };
 
     ws.onerror = () => {
-      if (disposedRef.current) return;
+      if (disposedRef.current || wsRef.current !== ws) return;
       // onerror always fires before onclose — just update the indicator
       setConnState("reconnecting");
     };
@@ -246,6 +326,7 @@ export function WebTerminal({
       setConnState("error");
       const term = termRef.current;
       if (term) {
+        coalescerRef.current?.flush();
         term.writeln("\r\n\x1b[31m[Connection failed. Press Enter to retry.]\x1b[0m");
         reconnectMsgShownRef.current = false;
         const disposable = term.onData(() => {
@@ -274,7 +355,7 @@ export function WebTerminal({
   }, [connectWs]);
 
   // Initialize terminal + first connection
-  const init = useCallback(async () => {
+  const init = useCallback(async (generation: number) => {
     const container = containerRef.current;
     if (!container || disposedRef.current) return;
 
@@ -285,6 +366,12 @@ export function WebTerminal({
       ]);
       await import("xterm/css/xterm.css");
 
+      // The awaits above suspend: a remount that started after this call bumped
+      // the generation. `disposedRef` alone cannot reject this stale call,
+      // because the remount's effect resets it to `false` before the imports
+      // resolve — which is how one mount used to allocate two terminals and two
+      // sockets, the second one closing the first mid-handshake.
+      if (generation !== initGenerationRef.current) return;
       if (disposedRef.current || containerRef.current !== container) return;
 
       if (termRef.current) {
@@ -327,22 +414,47 @@ export function WebTerminal({
       const fit = new FitAddon();
       term.loadAddon(fit);
       term.open(container);
-      if (container.clientWidth > 0 && container.clientHeight > 0) fit.fit();
+      fitPaneIfUsable(container, term, fit);
 
       termRef.current = term;
       fitRef.current = fit;
+
+      // rAF comes from the terminal's own document, not the module global: the
+      // component renders inside the host window while the module may have been
+      // loaded in another realm. Absent rAF (jsdom without pretendToBeVisual)
+      // means no frame scheduling at all — push() then writes straight through.
+      const host = container.ownerDocument.defaultView;
+      const scheduleFrame =
+        typeof host?.requestAnimationFrame === "function" ? host.requestAnimationFrame.bind(host) : null;
+      const cancelFrame =
+        typeof host?.cancelAnimationFrame === "function" ? host.cancelAnimationFrame.bind(host) : null;
+      coalescerRef.current = new TerminalWriteCoalescer(
+        (data) => {
+          if (termRef.current === term) term.write(data);
+        },
+        scheduleFrame,
+        cancelFrame,
+      );
 
       // Resize observer
       const resizeObserver = new ResizeObserver(() => {
         if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
         resizeTimerRef.current = setTimeout(() => {
-          const el = containerRef.current;
-          if (!el || el.clientWidth === 0 || el.clientHeight === 0) return;
+          resizeTimerRef.current = null;
+          const t = termRef.current;
+          if (!t || t !== term) return;
           try {
-            fitRef.current?.fit();
+            // A collapsed/hidden pane is not worth a PTY resize: the CLI would
+            // reflow to the 2-column minimum and repaint, then reflow back when
+            // the pane returns. Leave the PTY size alone and re-fit on regrow.
+            if (!fitPaneIfUsable(containerRef.current, t, fitRef.current)) return;
+            // fit() is a no-op when the dimensions already match, so only a real
+            // change is worth a round-trip that makes the CLI reflow.
+            if (t.cols === lastColsRef.current && t.rows === lastRowsRef.current) return;
             const ws = wsRef.current;
-            const t = termRef.current;
-            if (ws?.readyState === WebSocket.OPEN && t && t.cols > 0 && t.rows > 0) {
+            if (ws?.readyState === WebSocket.OPEN && t.cols > 0 && t.rows > 0) {
+              lastColsRef.current = t.cols;
+              lastRowsRef.current = t.rows;
               ws.send(JSON.stringify({ type: "resize", cols: t.cols, rows: t.rows }));
             }
           } catch {
@@ -363,7 +475,7 @@ export function WebTerminal({
 
   useEffect(() => {
     disposedRef.current = false;
-    init();
+    void init(++initGenerationRef.current);
     return cleanup;
   }, [init, cleanup]);
 
@@ -439,12 +551,12 @@ export function WebTerminal({
     error: "bg-red-400",
   };
 
-  const statusLabel: Record<ConnectionState, string> = {
-    connecting: "Connecting...",
-    connected: "Connected",
-    reconnecting: "Reconnecting...",
-    disconnected: "Disconnected",
-    error: "Connection Error",
+  const statusLabel: Record<ConnectionState, TranslationKey> = {
+    connecting: "terminal.connecting",
+    connected: "terminal.connected",
+    reconnecting: "terminal.reconnecting",
+    disconnected: "terminal.disconnected",
+    error: "terminal.error",
   };
 
   return (
@@ -452,7 +564,7 @@ export function WebTerminal({
       {/* Status bar */}
       <div className="flex items-center gap-2 border-b border-white/[0.06] bg-[#0a0e14] px-3 py-1.5">
         <div className={cn("h-2 w-2 rounded-full", statusColor[connState])} />
-        <span className="text-[11px] text-zinc-500">{statusLabel[connState]}</span>
+        <span className="text-[11px] text-zinc-500">{t(statusLabel[connState])}</span>
         <span className="flex-1" />
         <span className="text-[10px] font-mono text-zinc-600">{engagementSlug}</span>
       </div>

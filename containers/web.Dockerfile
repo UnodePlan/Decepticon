@@ -111,6 +111,9 @@ COPY --from=build --chown=nextjs:nodejs /app/clients/web/public ./clients/web/pu
 
 # Terminal WebSocket server (changes occasionally)
 COPY --from=build --chown=nextjs:nodejs /app/clients/web/server ./clients/web/server
+# Session-token module the terminal server imports to validate the dashboard
+# cookie (`server/terminal-server.ts` → `../src/lib/session`).
+COPY --from=build --chown=nextjs:nodejs /app/clients/web/src/lib/session.ts ./clients/web/src/lib/session.ts
 
 # Standalone Next.js server + static — changes every build but layer is small (~80MB)
 COPY --from=build --chown=nextjs:nodejs /app/clients/web/.next/standalone ./
